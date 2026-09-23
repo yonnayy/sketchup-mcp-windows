@@ -13,6 +13,7 @@ module SU_MCP
       @server = nil
       @running = false
       @timer_id = nil
+      @clients = {}
       
       # Try multiple ways to show console
       begin
@@ -45,76 +46,94 @@ module SU_MCP
         log "Server created on port #{@port}"
         
         @running = true
+        @clients ||= {}
         
         @timer_id = UI.start_timer(0.1, true) {
           begin
             if @running
-              # Check for connection
-              ready = IO.select([@server], nil, nil, 0)
-              if ready
-                log "Connection waiting..."
-                client = @server.accept_nonblock
-                log "Client accepted"
-                
-                data = client.gets
-                log "Raw data: #{data.inspect}"
-                
-                if data
-                  begin
-                    # Parse the raw JSON first to check format
-                    raw_request = JSON.parse(data)
-                    log "Raw parsed request: #{raw_request.inspect}"
-                    
-                    # Extract the original request ID if it exists in the raw data
+              # Accept every pending connection without ever blocking the UI thread
+              while IO.select([@server], nil, nil, 0)
+                begin
+                  client = @server.accept_nonblock
+                  @clients[client] = ""
+                  log "Client accepted (#{@clients.size} open)"
+                rescue IO::WaitReadable, Errno::EAGAIN, Errno::EWOULDBLOCK
+                  break
+                end
+              end
+
+              # Service each open client. Connections are kept alive across ticks
+              # because the python side treats this socket as persistent.
+              @clients.keys.each do |client|
+                begin
+                  # Drain only what is already available; never wait for more
+                  while IO.select([client], nil, nil, 0)
+                    begin
+                      chunk = client.read_nonblock(4096)
+                    rescue IO::WaitReadable, Errno::EAGAIN, Errno::EWOULDBLOCK
+                      break
+                    end
+                    raise EOFError if chunk.nil? || chunk.empty?
+                    @clients[client] << chunk
+                  end
+
+                  # Handle every complete newline-terminated request in the buffer
+                  while (idx = @clients[client].index("\n"))
+                    line = @clients[client].slice!(0, idx + 1).strip
+                    next if line.empty?
+
+                    log "Raw data: #{line.inspect}"
                     original_id = nil
-                    if data =~ /"id":\s*(\d+)/
-                      original_id = $1.to_i
-                      log "Found original request ID: #{original_id}"
+                    request = nil
+
+                    begin
+                      request = JSON.parse(line)
+                      original_id = $1.to_i if line =~ /"id":\s*(\d+)/
+                      if !request["id"] && original_id
+                        request["id"] = original_id
+                        log "Added missing ID: #{original_id}"
+                      end
+
+                      log "Processed request: #{request.inspect}"
+                      response = handle_jsonrpc_request(request)
+                      if response.nil?
+                        log "No response required for method #{request["method"].inspect}"
+                        next
+                      end
+                      response_json = response.to_json + "\n"
+
+                      log "Sending response: #{response_json.strip}"
+                      client.write(response_json)
+                      client.flush
+                      log "Response sent"
+                    rescue JSON::ParserError => e
+                      log "JSON parse error: #{e.message}"
+                      client.write({
+                        jsonrpc: "2.0",
+                        error: { code: -32700, message: "Parse error" },
+                        id: original_id
+                      }.to_json + "\n")
+                      client.flush
+                    rescue StandardError => e
+                      log "Request error: #{e.message}"
+                      client.write({
+                        jsonrpc: "2.0",
+                        error: { code: -32603, message: e.message },
+                        id: request ? request["id"] : original_id
+                      }.to_json + "\n")
+                      client.flush
                     end
-                    
-                    # Use the raw request directly without transforming it
-                    # Just ensure the ID is preserved if it exists
-                    request = raw_request
-                    if !request["id"] && original_id
-                      request["id"] = original_id
-                      log "Added missing ID: #{original_id}"
-                    end
-                    
-                    log "Processed request: #{request.inspect}"
-                    response = handle_jsonrpc_request(request)
-                    response_json = response.to_json + "\n"
-                    
-                    log "Sending response: #{response_json.strip}"
-                    client.write(response_json)
-                    client.flush
-                    log "Response sent"
-                  rescue JSON::ParserError => e
-                    log "JSON parse error: #{e.message}"
-                    error_response = {
-                      jsonrpc: "2.0",
-                      error: { code: -32700, message: "Parse error" },
-                      id: original_id
-                    }.to_json + "\n"
-                    client.write(error_response)
-                    client.flush
-                  rescue StandardError => e
-                    log "Request error: #{e.message}"
-                    error_response = {
-                      jsonrpc: "2.0",
-                      error: { code: -32603, message: e.message },
-                      id: request ? request["id"] : original_id
-                    }.to_json + "\n"
-                    client.write(error_response)
-                    client.flush
+                  end
+                rescue EOFError, Errno::ECONNRESET, Errno::EPIPE, IOError => e
+                  log "Client disconnected (#{e.class})"
+                  @clients.delete(client)
+                  begin
+                    client.close
+                  rescue StandardError
                   end
                 end
-                
-                client.close
-                log "Client closed"
               end
             end
-          rescue IO::WaitReadable
-            # Normal for accept_nonblock
           rescue StandardError => e
             log "Timer error: #{e.message}"
             log e.backtrace.join("\n")
@@ -139,6 +158,8 @@ module SU_MCP
         @timer_id = nil
       end
       
+      @clients.each_key { |c| begin; c.close; rescue StandardError; end }
+      @clients.clear
       @server.close if @server
       @server = nil
       log "Server stopped"
@@ -168,6 +189,11 @@ module SU_MCP
       case request["method"]
       when "tools/call"
         handle_tool_call(request)
+      when "ping"
+        # The python client fires a ping on every call and never reads the
+        # reply. Answering it leaves a stale response in the socket buffer
+        # that is consumed as the answer to the NEXT request.
+        nil
       when "resources/list"
         {
           jsonrpc: request["jsonrpc"] || "2.0",
