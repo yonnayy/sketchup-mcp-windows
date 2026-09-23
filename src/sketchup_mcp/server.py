@@ -1,5 +1,6 @@
 from mcp.server.fastmcp import FastMCP, Context
 import socket
+import select
 import json
 import asyncio
 import logging
@@ -22,18 +23,31 @@ class SketchupConnection:
     port: int
     sock: socket.socket = None
     
+    def _is_alive(self) -> bool:
+        """Report whether the cached socket is still usable.
+
+        ``send(b'')`` always succeeds, so the old check never detected a
+        closed peer. Ask the OS for a pending error and peek instead.
+        """
+        if not self.sock:
+            return False
+        try:
+            if self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR) != 0:
+                return False
+            readable, _, _ = select.select([self.sock], [], [], 0)
+            if readable and not self.sock.recv(1, socket.MSG_PEEK):
+                return False
+        except OSError:
+            return False
+        return True
+
     def connect(self) -> bool:
         """Connect to the Sketchup extension socket server"""
         if self.sock:
-            try:
-                # Test if connection is still alive
-                self.sock.settimeout(0.1)
-                self.sock.send(b'')
+            if self._is_alive():
                 return True
-            except (socket.error, BrokenPipeError, ConnectionResetError):
-                # Connection is dead, close it and reconnect
-                logger.info("Connection test failed, reconnecting...")
-                self.disconnect()
+            logger.info("Connection test failed, reconnecting...")
+            self.disconnect()
             
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -200,23 +214,17 @@ def get_sketchup_connection():
     global _sketchup_connection
     
     if _sketchup_connection is not None:
-        try:
-            # Test connection with a ping command
-            ping_request = {
-                "jsonrpc": "2.0",
-                "method": "ping",
-                "params": {},
-                "id": 0
-            }
-            _sketchup_connection.sock.sendall(json.dumps(ping_request).encode('utf-8') + b'\n')
+        # Never send a probe whose reply we do not read: it stays in the
+        # socket buffer and is consumed as the answer to the NEXT request,
+        # shifting every response by one.
+        if _sketchup_connection.connect():
             return _sketchup_connection
-        except Exception as e:
-            logger.warning(f"Existing connection is no longer valid: {str(e)}")
-            try:
-                _sketchup_connection.disconnect()
-            except:
-                pass
-            _sketchup_connection = None
+        logger.warning("Existing connection is no longer valid")
+        try:
+            _sketchup_connection.disconnect()
+        except Exception:
+            pass
+        _sketchup_connection = None
     
     if _sketchup_connection is None:
         _sketchup_connection = SketchupConnection(host="localhost", port=9876)
