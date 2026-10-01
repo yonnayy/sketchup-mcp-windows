@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger("SketchupMCPServer")
 
 # Define version directly to avoid pkg_resources dependency
-__version__ = "0.6.0"
+__version__ = "0.6.1"
 logger.info(f"SketchupMCP Server version {__version__} starting up")
 
 @dataclass
@@ -22,6 +22,9 @@ class SketchupConnection:
     host: str
     port: int
     sock: socket.socket = None
+    # Seconds to wait for SketchUp's answer. Rendering a large model with
+    # shadows to PNG takes longer than a normal call, so export raises it.
+    timeout: float = 15.0
     
     def _is_alive(self) -> bool:
         """Report whether the cached socket is still usable.
@@ -72,7 +75,7 @@ class SketchupConnection:
     def receive_full_response(self, sock, buffer_size=8192):
         """Receive the complete response, potentially in multiple chunks"""
         chunks = []
-        sock.settimeout(15.0)
+        sock.settimeout(self.timeout)
         
         try:
             while True:
@@ -113,7 +116,7 @@ class SketchupConnection:
             except json.JSONDecodeError:
                 raise Exception("Incomplete JSON response received")
         else:
-            raise Exception("No data received")
+            raise Exception("No data received within %d s (SketchUp may still be working on the request; check the model before repeating it)" % self.timeout)
 
     def send_command(self, method: str, params: Dict[str, Any] = None, request_id: Any = None) -> Dict[str, Any]:
         """Send a JSON-RPC request to Sketchup and return the response"""
@@ -163,7 +166,7 @@ class SketchupConnection:
                 self.sock.sendall(request_bytes)
                 logger.info(f"Request sent, waiting for response...")
                 
-                self.sock.settimeout(15.0)
+                self.sock.settimeout(self.timeout)
                 
                 response_data = self.receive_full_response(self.sock)
                 logger.info(f"Received {len(response_data)} bytes of data")
@@ -440,16 +443,20 @@ def export_scene(
     """
     try:
         sketchup = get_sketchup_connection()
-        result = sketchup.send_command(
-            method="tools/call",
-            params={
-                "name": "export",
-                "arguments": {
-                    "format": format
-                }
-            },
-            request_id=ctx.request_id
-        )
+        sketchup.timeout = 120.0
+        try:
+            result = sketchup.send_command(
+                method="tools/call",
+                params={
+                    "name": "export",
+                    "arguments": {
+                        "format": format
+                    }
+                },
+                request_id=ctx.request_id
+            )
+        finally:
+            sketchup.timeout = 15.0
         return json.dumps(result)
     except Exception as e:
         return f"Error exporting scene: {str(e)}"

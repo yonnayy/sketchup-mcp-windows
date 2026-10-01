@@ -187,7 +187,9 @@ module SU_MCP
     # Heights above the floor at which a measuring ray is cast. A single ray
     # would slip through a door or window opening and report the next room's
     # wall, so the nearest wall face found at any of these heights is used.
-    RAY_HEIGHTS = [0.05, 0.5, 1.0, 1.5, 2.0, 2.3, 2.6, 2.9].freeze
+    # The top ray clears a 2.03 m door head but stays under a normal ceiling:
+    # any higher and it would reach into the storey above and measure its walls.
+    RAY_HEIGHTS = [0.05, 0.5, 1.0, 1.5, 2.0, 2.3].freeze
 
     # Clear distance in metres between the two wall faces either side of [x, y].
     def self.clear(model, x, y, z, angle)
@@ -442,12 +444,15 @@ module SU_MCP
         # plan out of the picture. export_scene renders 16:9, so fit both shapes.
         view = model.active_view
         aspect = [view.vpwidth.to_f / view.vpheight, 16.0 / 9].min
-        margin = 3.0
+        margin = 4.5
         camera.height = [(ymax - ymin) + margin, ((xmax - xmin) + margin) / aspect].max.m
         view.camera = camera
-        # The scale figure and other reference objects do not belong on a plan.
-        reference = model.layers[Standards::TABLE['referensi'][0]]
-        reference.visible = false if reference
+        # The scale figure, the site and sun shadows do not belong on a plan.
+        %w[referensi tapak].each do |kind|
+          layer = model.layers[Standards::TABLE[kind][0]]
+          layer.visible = false if layer
+        end
+        model.shadow_info['DisplayShadows'] = false
         page = model.pages.add(name)
 
         # Dimensions and the cut belong to the plan scene only.
@@ -603,7 +608,11 @@ module SU_MCP
                       client.flush
                     end
                   end
-                rescue EOFError, Errno::ECONNRESET, Errno::EPIPE, IOError => e
+                rescue EOFError, IOError, SystemCallError => e
+                  # Every socket error ends this client, not just a clean close.
+                  # On Windows a peer that gave up waiting shows as ECONNABORTED;
+                  # left in the list it would raise on every tick and keep the
+                  # clients after it from ever being served.
                   log "Client disconnected (#{e.class})"
                   @clients.delete(client)
                   begin
