@@ -87,7 +87,9 @@ $exe = Join-Path $binDir 'sketchup-mcp.exe'
 Get-CimInstance Win32_Process -Filter "Name = 'sketchup-mcp.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.ExecutablePath -eq $exe } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-& $uv tool install --force --python 3.12 --from $root sketchup-mcp
+# --reinstall-package: without it uv reuses a cached build of the same version
+# number, so re-running the installer after an update would install old code.
+& $uv tool install --force --reinstall-package sketchup-mcp --python 3.12 --from $root sketchup-mcp
 if ($LASTEXITCODE -ne 0) { throw 'uv tool install failed (see the message above).' }
 if (-not (Test-Path $exe)) { throw "Expected $exe after installation, but it is missing." }
 Ok "Server: $exe"

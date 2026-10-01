@@ -90,7 +90,7 @@ Kalau keempatnya berhasil, pemasangan selesai. Hapus model uji dengan Ctrl+Z di 
 
 1. **Extension:** di SketchUp, **Extensions > Extension Manager > Install Extension**, pilih `release/su_mcp_v1.6.1.rbz` dari repo ini. Buka ulang SketchUp.
 2. **uv:** `powershell -ExecutionPolicy Bypass -c "irm https://astral.sh/uv/install.ps1 | iex"`
-3. **Server:** `uv tool install --force --python 3.12 "sketchup-mcp @ https://github.com/yonnayy/sketchup-mcp-windows/archive/refs/heads/main.zip"`
+3. **Server:** `uv tool install --force --reinstall-package sketchup-mcp --python 3.12 "sketchup-mcp @ https://github.com/yonnayy/sketchup-mcp-windows/archive/refs/heads/main.zip"`
 4. **Config:** di Claude Desktop, **Settings > Developer > Edit Config**, tambahkan (ganti `NAMA` dengan nama pengguna Windows):
 
 ```json

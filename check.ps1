@@ -59,6 +59,24 @@ foreach ($c in $configs) {
 }
 if (-not $registered) { Fail 'No "sketchup" entry in any Claude Desktop config' 'Run install.ps1.' }
 
+# The installed server must be this repo's version, not a stale cached build.
+$serverPy = $null
+$uvCmd = Get-Command uv -ErrorAction SilentlyContinue
+$uvExe = if ($uvCmd) { $uvCmd.Source } else { Join-Path $env:USERPROFILE '.local\bin\uv.exe' }
+if (Test-Path $uvExe) {
+    $toolDir = (& $uvExe tool dir 2>$null | Select-Object -First 1)
+    if ($toolDir) { $serverPy = Join-Path $toolDir.Trim() 'sketchup-mcp\Lib\site-packages\sketchup_mcp\server.py' }
+}
+if ($serverPy -and (Test-Path $serverPy)) {
+    if ([System.IO.File]::ReadAllText($serverPy) -match 'def build_floor_plan') {
+        Pass 'Installed server has the build_floor_plan tool'
+    } else {
+        Fail 'Installed server is an old build (no build_floor_plan tool)' 'Run install.ps1 again, then quit and reopen Claude Desktop.'
+    }
+} else {
+    Fail 'Installed server package not found (uv tool "sketchup-mcp")' 'Run install.ps1.'
+}
+
 # 3. SketchUp running + server listening
 $su = Get-Process -Name SketchUp -ErrorAction SilentlyContinue
 if ($su) { Pass 'SketchUp is running' } else { Fail 'SketchUp is not running' 'Open SketchUp and open a model (get past the Welcome window).' }
