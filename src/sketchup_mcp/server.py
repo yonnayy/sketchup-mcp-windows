@@ -424,7 +424,7 @@ def export_scene(
 ) -> str:
     """Export the current model. format: png, jpg, skp, obj, dae, stl.
 
-    The file is written to %TEMP%\sketchup_exports and its full path is
+    The file is written to the sketchup_exports folder inside %TEMP% and its full path is
     returned in content[0].text. Use format='png' to get a screenshot of the
     current view so you can check the model visually.
     """
