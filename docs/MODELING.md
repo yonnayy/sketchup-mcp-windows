@@ -13,7 +13,7 @@ Panduan untuk Claude saat diminta membuat model SketchUp dari denah.
 5. **Susun daftar dinding dan bukaan** dalam meter, beri `id` tiap dinding. `offset` bukaan adalah jarak dari titik `from` dinding ke tepi terdekat bukaan.
 6. **Panggil `build_floor_plan`** sekali untuk satu lantai, dengan `building` berisi nama bangunan. Baca jawabannya: bagian `Warnings` harus kosong.
 7. **Buat laporan akurasi** dengan `verify_dimensions`: ukuran luar dan ukuran bersih tiap ruang, dibandingkan dengan denah. Semua baris harus `OK`. Sampaikan laporan ini ke pengguna.
-8. **Tambahkan yang lain** (atap, kolom, tangga, perabot) lewat `eval_ruby` dengan `SU_MCP.element`, di dalam wadah bangunan yang sama. Posisi tangga dan perabot dibaca dari gambar, bukan ditebak; sesudahnya `check_placement` harus menjawab `PLACEMENT OK` (lihat [WORKFLOW.md](WORKFLOW.md)).
+8. **Tambahkan yang lain**: atap, tiang, papan dinding, lis jendela, tangga, dan perabot punya tool sendiri ([DETAIL.md](DETAIL.md)); selebihnya lewat `eval_ruby` dengan `SU_MCP.element`, di dalam wadah bangunan yang sama. Posisi tangga dan perabot dibaca dari gambar, bukan ditebak; sesudahnya `check_placement` harus menjawab `PLACEMENT OK` (lihat [WORKFLOW.md](WORKFLOW.md)).
 9. **Audit:** `SU_MCP.audit_model` harus menjawab `AUDIT OK`.
 10. **Buat tampak denah berdimensi** dengan `add_plan_view`, ekspor ke `png`, dan tunjukkan ke pengguna supaya bisa dicocokkan dengan denah aslinya.
 11. **Lihat hasil 3D-nya** dengan `export_scene` format `png` di scene `3D`, lalu perbaiki kalau ada yang salah (Ctrl+Z di SketchUp membatalkan satu langkah sekaligus).

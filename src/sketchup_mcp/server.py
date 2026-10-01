@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger("SketchupMCPServer")
 
 # Define version directly to avoid pkg_resources dependency
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 logger.info(f"SketchupMCP Server version {__version__} starting up")
 
 @dataclass
@@ -280,6 +280,8 @@ mcp = FastMCP(
         "the plan dimensions are measured to (ref center/left/right); 3) verify_dimensions against the plan "
         "and report the result to the user; 4) add_plan_view for a dimensioned plan drawing the user can "
         "compare with the original. "
+        "Roofs and details have tools of their own (docs/DETAIL.md), in this order: build_roof, add_posts, "
+        "add_siding, add_window_trim, build_stairs, place_furniture; use eval_ruby only for what they cannot do. "
         "Never guess coordinates for stairs or furniture: read them from the drawings, then run "
         "check_placement (it must answer PLACEMENT OK). "
         "While working, check yourself with export_scene(format='png') and look at the image. "
@@ -750,6 +752,176 @@ def export_views(
         return json.dumps(result)
     except Exception as e:
         return f"Error exporting views: {str(e)}"
+
+def _detail(ctx: Context, name: str, spec: Dict[str, Any], timeout: float = 120.0) -> str:
+    """Send one of the detail tools (docs/DETAIL.md) to SketchUp."""
+    try:
+        sketchup = get_sketchup_connection()
+        sketchup.timeout = timeout
+        try:
+            result = sketchup.send_command(
+                method="tools/call",
+                params={"name": name, "arguments": {"spec": spec}},
+                request_id=ctx.request_id
+            )
+        finally:
+            sketchup.timeout = 15.0
+        return json.dumps(result)
+    except Exception as e:
+        return f"Error in {name}: {str(e)}"
+
+@mcp.tool()
+def build_roof(ctx: Context, spec: Dict[str, Any]) -> str:
+    """Build a roof over a rectangular wall outline. All numbers are METRES.
+
+    spec = {
+      "building": "Rumah A",          # building container
+      "type": "gable",                # gable | hip | shed | flat
+      "from": [0, 0], "to": [8, 6],   # opposite corners of the OUTSIDE of the walls
+      "base_z": 3.0,                  # top of the walls (underside of the roof at the wall line)
+      "pitch": "7.5:12",              # rise:run, or a number (0.625), or "pitch_deg": 32
+      "overhang": 0.3,                # eaves; "rake": overhang at the gable ends
+      "thickness": 0.15,
+      "ridge": "x",                   # gable: ridge direction (default: the longer side)
+      "seams": 0.4,                   # standing-seam lines down the slope every 0.4 m (0 = none)
+      "gable_walls": true,            # gable: fill the two triangles with walls (Ampig)
+      "material": "Atap - Seng Abu", "color": [74, 80, 86],
+      "name": "Atap Utama", "group": "Atap"   # element name, container inside the building
+    }
+    shed: "high_side": "north" | "south" | "east" | "west" is the side that
+    meets the wall; give either "base_z" (underside at the low wall line) or
+    "top_z" (underside at the high edge). "miter": {"start": true} cuts that
+    end at 45 degrees so two shed roofs meet in a hip at an outside corner
+    (wrap-around porch): give both the rectangle that runs out to the corner.
+    The roof edge is painted white (fascia; "fascia": false to leave it).
+    Calling it again with the same name replaces the roof. The reply gives the
+    height of the top of the ridge: compare it with the drawing.
+    L-shaped or cross-gabled roofs are several build_roof calls, one per wing.
+    """
+    return _detail(ctx, "build_roof", spec)
+
+@mcp.tool()
+def add_siding(ctx: Context, spec: Dict[str, Any]) -> str:
+    """Draw cladding boards on the OUTSIDE faces of a building's walls, and
+    corner boards where two outside faces meet. Metres.
+
+    spec = {
+      "building": "Rumah A",
+      "floor": "Lantai 1",        # optional: only this floor's walls
+      "style": "clapboard",       # clapboard (horizontal boards) | batten (vertical)
+      "spacing": 0.125,           # board height; battens default to 0.4
+      "corner_boards": 0.09,      # board width; false for none
+      "only": ["W1"], "skip": ["W5"],   # wall ids, optional
+      "force": ["W3"]             # clad every face of these walls, whatever the test says
+    }
+    Which faces are outside is found by looking out from each stretch of wall:
+    a stretch that faces a room (or another wing built against it) gets no
+    boards. Boards stop at door and window openings. The lines are drawn on
+    the wall itself, so tags and materials stay as they are; set the wall
+    colour with the wall's material in build_floor_plan. Run it BEFORE
+    add_window_trim, and after all walls (and gable walls) exist. Running it
+    again adds nothing twice. The reply lists the walls that were clad and
+    those found to be inside walls: read it.
+    """
+    return _detail(ctx, "add_siding", spec)
+
+@mcp.tool()
+def add_window_trim(ctx: Context, spec: Dict[str, Any]) -> str:
+    """Add a head trim, a sill and louvred shutters on the outside of every
+    window made by build_floor_plan. Metres.
+
+    spec = {
+      "building": "Rumah A", "floor": "Lantai 1",   # floor optional
+      "head": true, "sill": true, "shutters": true,
+      "shutter_material": "Jendela - Shutter Hijau", "shutter_color": [38, 62, 48],
+      "louvre": 0.035            # spacing of the louvre lines; 0 for plain panels
+    }
+    The parts go inside the window unit (Lis Atas, Lis Bawah, Shutter Kiri,
+    Shutter Kanan), each shutter half the window wide. The outside is found by
+    the same test as add_siding; a window with both sides open or both sides
+    enclosed is skipped and named in the reply. Calling it again replaces the
+    earlier trim.
+    """
+    return _detail(ctx, "add_window_trim", spec)
+
+@mcp.tool()
+def add_posts(ctx: Context, spec: Dict[str, Any]) -> str:
+    """Stand posts (porch, veranda, carport) at the given points. Metres.
+
+    spec = {
+      "building": "Rumah A", "group": "Teras",   # container inside the building
+      "points": [[0.1, -1.9], [2.7, -1.9]],      # centre of each post
+      "base_z": 0, "height": 2.4, "size": 0.14,
+      "style": "turned",                         # turned | square | round
+      "foot": 0.75, "cap": 0.25,                 # turned: square parts at bottom and top
+      "material": "Struktur - Kayu Putih", "color": [245, 245, 240],
+      "name": "Tiang"                            # posts are named "Tiang 1", "Tiang 2", ...
+    }
+    Each post is one solid. Read the post positions and height from the
+    drawings (elevation, porch plan). Calling it again with the same name
+    replaces the posts.
+    """
+    return _detail(ctx, "add_posts", spec)
+
+@mcp.tool()
+def build_stairs(ctx: Context, spec: Dict[str, Any]) -> str:
+    """Build a staircase from flights, winders and landings. Metres.
+
+    spec = {
+      "building": "Rumah A",
+      "start": [6.5, 1.0],        # middle of the FIRST riser
+      "direction": 90,            # walking direction in degrees: 0 = +x, 90 = +y
+      "base_z": 0, "rise": 3.0,   # floor to floor
+      "risers": 16,               # riser height = rise / risers
+      "width": 0.9, "tread": 0.25,
+      "segments": [               # walked in order, from the bottom
+        {"type": "flight", "treads": 9},
+        {"type": "winder", "turn": "left", "steps": 3},   # 90-degree turn in wedge steps
+        {"type": "flight", "treads": 3}
+      ],
+      "material": "Tangga - Kayu", "color": [168, 124, 82], "name": "Tangga"
+    }
+    {"type": "landing", "turn": "left" | "right"} is a square quarter landing;
+    {"type": "landing", "length": 1.0} a straight one. Each winder step and
+    each landing counts as one tread. The treads of all segments must add up
+    to risers - 1 (the floor above is the last tread); the reply warns if they
+    do not. Without "segments" it is one straight flight.
+    Take every number from the drawings (for example "14 R @ 7.7 in" and the
+    stair plan); do not invent a staircase. The reply gives where the stair
+    arrives and its footprint: the slab of the floor above must be open there,
+    so leave that area out of its "slab" outline in build_floor_plan. Then run
+    check_placement. Calling it again with the same name replaces the stairs.
+    """
+    return _detail(ctx, "build_stairs", spec)
+
+@mcp.tool()
+def place_furniture(ctx: Context, spec: Dict[str, Any]) -> str:
+    """Place simple furniture and fixtures, then check them against doors and walls. Metres.
+
+    spec = {
+      "building": "Rumah A", "floor": "Lantai 1",   # container the pieces go into
+      "base_z": 0,                                  # floor level
+      "items": [
+        {"type": "bed", "at": [1.2, 4.8]},                      # "at" = middle of the piece
+        {"type": "sofa", "at": [5.2, 0.65], "rotation": 180},
+        {"type": "table", "at": [5.2, 4.4], "size": [1.4, 0.8, 0.75], "name": "Meja Makan"}
+      ]
+    }
+    Types (width x depth x height): bed 1.6x2.0x0.5, sofa 2.0x0.9x0.8, table
+    1.6x0.9x0.75, chair 0.45x0.45x0.9, desk 1.2x0.6x0.75, cabinet 1.2x0.6x0.9,
+    wardrobe 1.2x0.6x2.0, fridge 0.7x0.7x1.8, stove 0.6x0.6x0.9, toilet
+    0.4x0.7x0.8, sink 0.6x0.5x0.85, bathtub 0.75x1.7x0.55, shower 0.9x0.9x0.08.
+    Width runs along x and the BACK of the piece (headboard, sofa back, toilet
+    tank) faces north (+y) at rotation 0; rotation is in degrees anticlockwise,
+    so 180 puts the back to the south wall, 90 to the west, -90 to the east.
+    "size", "name", "material" and "color" can be set per item. These are
+    massing pieces for plans and cut-away views, not detailed models.
+    Work the positions out from the room's walls, doors and windows (use
+    verify_dimensions without "expected" to read a room), never from memory.
+    The reply ends with the check_placement report: fix every conflict.
+    A piece with the same name in the same container is replaced.
+    """
+    return _detail(ctx, "place_furniture", spec)
 
 @mcp.tool()
 def eval_ruby(

@@ -15,7 +15,7 @@ Keduanya sekarang dijaga oleh tool: `check_placement` dan `export_views`.
 | 2 | Cek deret ukuran | `check_dimension_chains` | `CHAINS OK`, atau pengguna sudah memutuskan angka mana yang menang |
 | 3 | Dinding, bukaan, pelat per lantai | `build_floor_plan` | Tanpa `Warnings` |
 | 4 | Bandingkan dengan denah | `verify_dimensions` | `VERIFY OK`, atau selisihnya dijelaskan ke pengguna |
-| 5 | Atap, teras, tangga, perabot, tapak | `eval_ruby` dengan `SU_MCP.element` | Tiap elemen bernama, bertag, bermaterial |
+| 5 | Atap, tiang, papan dinding, lis jendela, tangga, perabot | `build_roof`, `add_posts`, `add_siding`, `add_window_trim`, `build_stairs`, `place_furniture` ([DETAIL.md](DETAIL.md)); sisanya (tapak, bentuk khusus) lewat `eval_ruby` dengan `SU_MCP.element` | Tiap jawaban dibaca, tanpa `WARNING` |
 | 6 | Cek tangga dan perabot | `check_placement` | `PLACEMENT OK` |
 | 7 | Cek aturan model | `SU_MCP.audit_model` | `AUDIT OK` |
 | 8 | Buat scene: denah, perspektif, potongan, tampak | `add_plan_view`, `eval_ruby` | Scene ada untuk setiap gambar yang mau ditunjukkan |

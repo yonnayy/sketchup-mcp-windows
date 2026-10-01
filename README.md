@@ -55,6 +55,7 @@ Syarat: Windows 10/11, SketchUp desktop (bukan SketchUp Web), Claude Desktop. Di
 - [docs/INSTALL.md](docs/INSTALL.md): pemasangan langkah demi langkah dan cara verifikasi
 - [docs/STANDARDS.md](docs/STANDARDS.md): aturan dasar model (tag, material, susunan grup) dan audit
 - [docs/MODELING.md](docs/MODELING.md): cara kerja denah ke 3D, acuan ukuran dinding, laporan akurasi, model contoh pertama
+- [docs/DETAIL.md](docs/DETAIL.md): atap (pelana, perisai, sandar, datar), papan dinding, lis dan shutter jendela, tiang, tangga, perabot
 - [docs/WORKFLOW.md](docs/WORKFLOW.md): panduan kerja untuk setiap proyek, dari membaca gambar sampai gambar hasil; cek tangga dan perabot, ekspor semua scene
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md): gejala dan solusinya
 - [CHANGES.md](CHANGES.md): apa yang diubah dari versi asli

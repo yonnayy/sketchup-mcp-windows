@@ -838,6 +838,904 @@ module SU_MCP
   def self.views_status
     Views.status
   end
+  # Roofs and the details that make a model read as a building: cladding
+  # boards, corner boards, window trim and shutters, posts, stairs, furniture.
+  # Everything is given in metres and follows the house rules. See docs/DETAIL.md.
+  module Detail
+    WHITE = [245, 245, 240].freeze
+    # What counts as "a building is in the way" when looking for outside faces.
+    BLOCKING = %w[dinding pintu jendela].map { |k| Standards::TABLE[k][0] }.freeze
+
+    def self.operation(name)
+      model = Sketchup.active_model
+      raise "No model is open in SketchUp" unless model
+      model.start_operation("MCP: #{name}", true)
+      begin
+        result = yield model
+        model.commit_operation
+        result
+      rescue StandardError
+        model.abort_operation
+        raise
+      end
+    end
+
+    # An untagged container group inside parent, created on first use.
+    def self.child(parent, name)
+      found = parent.entities.grep(Sketchup::Group).find { |g| g.name == name.to_s }
+      return found if found
+      model = Sketchup.active_model
+      previous = model.active_layer
+      model.active_layer = model.layers[0]
+      begin
+        group = parent.entities.add_group
+        group.name = name.to_s
+        group
+      ensure
+        model.active_layer = previous
+      end
+    end
+
+    def self.home(spec, default_group = nil)
+      building = Standards.container((spec['building'] || 'Bangunan').to_s)
+      name = spec.key?('group') ? spec['group'] : default_group
+      name ? child(building, name) : building
+    end
+
+    def self.pt(x, y, z)
+      Geom::Point3d.new(x.to_f.m, y.to_f.m, z.to_f.m)
+    end
+
+    def self.face(ents, pts)
+      clean = []
+      pts.each { |q| clean << q unless clean.last && clean.last.distance(q) < 0.001 }
+      clean.pop while clean.length > 1 && clean.first.distance(clean.last) < 0.001
+      return nil if clean.length < 3
+      ents.add_face(clean)
+    end
+
+    # Points of a ring that are real corners (collinear ones dropped).
+    def self.corners(ring)
+      n = ring.length
+      kept = (0...n).select do |i|
+        a = ring[i] - ring[i - 1]
+        b = ring[(i + 1) % n] - ring[i]
+        a.length < 0.001 || b.length < 0.001 ? false : (a * b).length > 0.0001
+      end
+      kept.map { |i| ring[i] }
+    end
+
+    # Closed skin over a stack of rings with the same number of points.
+    def self.skin(ents, rings)
+      face(ents, corners(rings.first))
+      face(ents, corners(rings.last))
+      rings.each_cons(2) do |low, high|
+        n = low.length
+        n.times do |i|
+          j = (i + 1) % n
+          face(ents, [low[i], low[j], high[j], high[i]])
+        end
+      end
+    end
+
+    def self.loft(ents, bottom, top)
+      face(ents, bottom)
+      face(ents, top)
+      n = bottom.length
+      n.times do |i|
+        j = (i + 1) % n
+        face(ents, [bottom[i], bottom[j], top[j], top[i]])
+      end
+    end
+
+    # Upright prism over a plan polygon, metres.
+    def self.prism(ents, plan, z0, z1)
+      loft(ents, plan.map { |x, y| pt(x, y, z0) }, plan.map { |x, y| pt(x, y, z1) })
+    end
+
+    def self.box(ents, x0, x1, y0, y1, z0, z1)
+      prism(ents, [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], z0, z1)
+    end
+
+    def self.paint(faces, material)
+      faces.each do |f|
+        f.material = material
+        f.back_material = material
+      end
+    end
+
+    def self.pitch(spec)
+      return Math.tan(spec['pitch_deg'].to_f.degrees) if spec['pitch_deg']
+      v = spec['pitch']
+      return 0.5 if v.nil?
+      if v.is_a?(String) && v.include?(':')
+        rise, run = v.split(':').map(&:to_f)
+        return rise / run
+      end
+      v.to_f
+    end
+
+    # Lines running down the slope of a planar roof face, `spacing` apart.
+    # poly: Point3d corners; down: [dx, dy], the downhill direction on plan.
+    def self.seams(ents, poly, down, spacing)
+      return 0 if spacing <= 0
+      ex = -down[1]
+      ey = down[0]
+      us = poly.map { |q| q.x.to_f * ex + q.y.to_f * ey }
+      umin = us.min
+      umax = us.max
+      n = ((umax - umin) / spacing).floor
+      return 0 if n < 1
+      start = umin + ((umax - umin) - n * spacing) / 2.0
+      count = 0
+      (0..n).each do |k|
+        u = start + k * spacing
+        next if u - umin < 0.5 || umax - u < 0.5
+        hits = []
+        poly.each_with_index do |q, i|
+          j = (i + 1) % poly.length
+          next if (us[i] > u) == (us[j] > u)
+          f = (u - us[i]) / (us[j] - us[i])
+          hits << Geom::Point3d.linear_combination(1 - f, q, f, poly[j])
+        end
+        next unless hits.length == 2 && hits[0].distance(hits[1]) > 0.5
+        ents.add_line(hits[0], hits[1])
+        count += 1
+      end
+      count
+    end
+
+    # ---------------------------------------------------------------- roof
+
+    def self.roof(spec)
+      type = (spec['type'] || 'gable').to_s
+      raise "Unknown roof type #{type.inspect}. Use gable, hip, shed or flat" unless %w[gable hip shed flat].include?(type)
+      raise 'A roof needs "from" and "to": two opposite corners of the wall outline, in metres' unless spec['from'] && spec['to']
+      fx, fy = spec['from']
+      tx, ty = spec['to']
+      lo = [[fx, tx].min.to_f, [fy, ty].min.to_f]
+      hi = [[fx, tx].max.to_f, [fy, ty].max.to_f]
+      raise 'Roof outline has no area' if hi[0] - lo[0] < 0.05 || hi[1] - lo[1] < 0.05
+      p = type == 'flat' ? 0.0 : pitch(spec)
+      oh = (spec['overhang'] || 0.3).to_f
+      rake = (spec['rake'] || oh).to_f
+      t = (spec['thickness'] || 0.15).to_f
+      tv = t * Math.sqrt(1 + p * p)
+      spacing = (spec['seams'] || 0).to_f.m
+      base = (spec['base_z'] || 0).to_f
+      name = (spec['name'] || "Atap #{type.capitalize}").to_s
+      tops = []
+      info = nil
+      walls = 0
+      lines = 0
+
+      operation(name) do
+        parent = home(spec, 'Atap')
+        parent.entities.grep(Sketchup::Group).select { |g| g.name == name || g.name =~ /\A#{Regexp.escape(name)} Ampig \d\z/ }.each(&:erase!)
+        roof = Standards.element(name, :atap, parent, spec['material'], spec['color']) do |ents|
+          case type
+          when 'gable'
+            a = (spec['ridge'] || ((hi[0] - lo[0]) >= (hi[1] - lo[1]) ? 'x' : 'y')).to_s == 'x' ? 0 : 1
+            c = 1 - a
+            q = lambda { |av, cv, z| a == 0 ? pt(av, cv, z) : pt(cv, av, z) }
+            half = (hi[c] - lo[c]) / 2.0
+            mid = (hi[c] + lo[c]) / 2.0
+            w = half + oh
+            ze = base - oh * p
+            zr = base + half * p
+            profile = [[mid - w, ze], [mid, zr], [mid + w, ze], [mid + w, ze + tv], [mid, zr + tv], [mid - w, ze + tv]]
+            a0 = lo[a] - rake
+            a1 = hi[a] + rake
+            loft(ents, profile.map { |cv, z| q.call(a0, cv, z) }, profile.map { |cv, z| q.call(a1, cv, z) })
+            up = a == 0 ? [0, 1] : [1, 0]
+            tops << [[q.call(a0, mid + w, ze + tv), q.call(a1, mid + w, ze + tv), q.call(a1, mid, zr + tv), q.call(a0, mid, zr + tv)], up]
+            tops << [[q.call(a0, mid - w, ze + tv), q.call(a1, mid - w, ze + tv), q.call(a1, mid, zr + tv), q.call(a0, mid, zr + tv)], up.map { |v| -v }]
+            info = { ridge: zr + tv, eave: ze, size: [a1 - a0, 2 * w], axis: a, half: half, mid: mid, zr: zr }
+          when 'hip'
+            a = (hi[0] - lo[0]) >= (hi[1] - lo[1]) ? 0 : 1
+            c = 1 - a
+            q = lambda { |av, cv, z| a == 0 ? pt(av, cv, z) : pt(cv, av, z) }
+            a0 = lo[a] - oh
+            a1 = hi[a] + oh
+            c0 = lo[c] - oh
+            c1 = hi[c] + oh
+            hs = (c1 - c0) / 2.0
+            mid = (c0 + c1) / 2.0
+            ze = base - oh * p
+            zr = ze + tv + hs * p
+            low = [q.call(a0, c0, ze), q.call(a1, c0, ze), q.call(a1, c1, ze), q.call(a0, c1, ze)]
+            rim = [q.call(a0, c0, ze + tv), q.call(a1, c0, ze + tv), q.call(a1, c1, ze + tv), q.call(a0, c1, ze + tv)]
+            r1 = q.call(a0 + hs, mid, zr)
+            r2 = q.call(a1 - hs, mid, zr)
+            face(ents, low)
+            4.times { |i| face(ents, [low[i], low[(i + 1) % 4], rim[(i + 1) % 4], rim[i]]) }
+            along = a == 0 ? [1, 0] : [0, 1]
+            across = a == 0 ? [0, 1] : [1, 0]
+            tops << [[rim[0], rim[1], r2, r1], across.map { |v| -v }]
+            tops << [[rim[2], rim[3], r1, r2], across]
+            tops << [[rim[3], rim[0], r1], along.map { |v| -v }]
+            tops << [[rim[1], rim[2], r2], along]
+            tops.each { |poly, _| face(ents, poly) }
+            info = { ridge: zr, eave: ze, size: [a1 - a0, c1 - c0] }
+          when 'shed'
+            side = (spec['high_side'] || 'north').to_s
+            c, s = { 'north' => [1, 1], 'south' => [1, -1], 'east' => [0, 1], 'west' => [0, -1] }[side] ||
+                   raise("high_side must be north, south, east or west, not #{side.inspect}")
+            a = 1 - c
+            q = lambda { |av, cv, z| a == 0 ? pt(av, cv, z) : pt(cv, av, z) }
+            depth = hi[c] - lo[c]
+            ch = s > 0 ? hi[c] : lo[c]
+            cl = s > 0 ? lo[c] : hi[c]
+            zh = spec['top_z'] ? spec['top_z'].to_f : base + depth * p
+            miter = spec['miter'] || {}
+            ms = miter['start'] ? true : false
+            me = miter['end'] ? true : false
+            ohh = ms || me ? 0.0 : (spec['overhang_high'] || 0).to_f
+            c_low = cl - s * oh
+            c_high = ch + s * ohh
+            plan = [[lo[a] - (ms ? oh : rake), c_low], [hi[a] + (me ? oh : rake), c_low],
+                    [me ? hi[a] - depth : hi[a] + rake, c_high], [ms ? lo[a] + depth : lo[a] - rake, c_high]]
+            under = lambda { |cv| zh - s * (ch - cv) * p }
+            bottom = plan.map { |av, cv| q.call(av, cv, under.call(cv)) }
+            top = plan.map { |av, cv| q.call(av, cv, under.call(cv) + tv) }
+            loft(ents, bottom, top)
+            tops << [top, a == 0 ? [0, -s] : [-s, 0]]
+            info = { ridge: under.call(c_high) + tv, eave: under.call(c_low), size: [plan[1][0] - plan[0][0], (c_high - c_low).abs] }
+          else
+            box(ents, lo[0] - oh, hi[0] + oh, lo[1] - oh, hi[1] + oh, base, base + t)
+            info = { ridge: base + t, eave: base, size: [hi[0] - lo[0] + 2 * oh, hi[1] - lo[1] + 2 * oh] }
+          end
+          tops.each { |poly, down| lines += seams(ents, poly, down, spacing) }
+          unless spec.key?('fascia') && !spec['fascia']
+            rgb = spec['fascia'].is_a?(Array) ? spec['fascia'] : WHITE
+            paint(ents.grep(Sketchup::Face).select { |f| f.normal.z.abs < 0.01 }, Standards.material(:atap, 'Atap - Lisplang Putih', rgb))
+          end
+        end
+
+        gw = spec['gable_walls']
+        if type == 'gable' && gw
+          gw = {} unless gw.is_a?(Hash)
+          tw = (gw['thickness'] || 0.15).to_f
+          a = info[:axis]
+          c = 1 - a
+          q = lambda { |av, cv, z| a == 0 ? pt(av, cv, z) : pt(cv, av, z) }
+          [[lo[a], lo[a] + tw], [hi[a], hi[a] - tw]].each_with_index do |(out_a, in_a), i|
+            Standards.element("#{name} Ampig #{i + 1}", :dinding, parent, gw['material'], gw['color']) do |ents|
+              tri = [[lo[c], base], [hi[c], base], [info[:mid], info[:zr]]]
+              loft(ents, tri.map { |cv, z| q.call(out_a, cv, z) }, tri.map { |cv, z| q.call(in_a, cv, z) })
+            end
+            walls += 1
+          end
+        end
+        summary = "Roof '#{name}' (#{type}) built in '#{parent.name}': top of ridge at +#{format('%.3f', info[:ridge])} m, " \
+                  "underside of eave at +#{format('%.3f', info[:eave])} m, #{format('%.2f', info[:size][0])} x #{format('%.2f', info[:size][1])} m on plan"
+        summary += ", pitch #{format('%.3f', p)} (#{format('%.1f', Math.atan(p).radians)} deg)" unless type == 'flat'
+        summary += ", #{lines} seam lines" if lines > 0
+        summary += ", #{walls} gable walls" if walls > 0
+        summary + ". Group entityID #{roof.entityID}. Look at it with export_scene, then SU_MCP.audit_model."
+      end
+    end
+
+    # ------------------------------------------------------- outside faces
+
+    def self.blocked?(model, origin, dir)
+      point = origin
+      8.times do
+        hit = model.raytest([point, dir], true)
+        return false unless hit
+        return false if origin.distance(hit[0]) > 30.m
+        return true if hit[1].any? { |e| e.respond_to?(:layer) && e.layer && BLOCKING.include?(e.layer.name) }
+        point = hit[0].offset(dir, 0.05)
+      end
+      true
+    end
+
+    # How many of `count` horizontal directions, fanned over `spread` degrees
+    # around `angle`, are free of buildings. Outside a wall most are; inside a
+    # room hardly any, even with a door standing open.
+    def self.escapes(model, origin, angle, spread = 168.0, count = 15)
+      (0...count).count do |i|
+        a = angle + (spread * (i.to_f / (count - 1) - 0.5)).degrees
+        !blocked?(model, origin, Geom::Vector3d.new(Math.cos(a), Math.sin(a), 0))
+      end
+    end
+    OUTSIDE = 6
+
+    def self.each_group(model, building, floor, tr = Geom::Transformation.new, entities = nil, names = [], &block)
+      (entities || model.entities).each do |e|
+        next unless e.is_a?(Sketchup::Group)
+        here = names + [e.name.to_s]
+        full = tr * e.transformation
+        wanted = (building.nil? || here.include?(building.to_s)) && (floor.nil? || here.include?(floor.to_s))
+        descend = block.call(e, full, tr, wanted)
+        each_group(model, building, floor, full, e.entities, here, &block) if descend
+      end
+    end
+
+    def self.crossings(ring, value, axis)
+      out = []
+      ring.each_with_index do |a, i|
+        b = ring[(i + 1) % ring.length]
+        next if (a[axis] > value) == (b[axis] > value)
+        f = (value - a[axis]) / (b[axis] - a[axis])
+        out << a[1 - axis] + f * (b[1 - axis] - a[1 - axis])
+      end
+      out.sort
+    end
+
+    def self.subtract(spans, holes)
+      holes.each do |h0, h1|
+        spans = spans.flat_map do |s0, s1|
+          next [[s0, s1]] if h1 <= s0 || h0 >= s1
+          parts = []
+          parts << [s0, h0] if h0 > s0
+          parts << [h1, s1] if h1 < s1
+          parts
+        end
+      end
+      spans
+    end
+
+    def self.intersect(spans, runs)
+      spans.flat_map { |s0, s1| runs.map { |r0, r1| [[s0, r0].max, [s1, r1].min] } }.select { |a, b| b - a > 0.5 }
+    end
+
+    # ---------------------------------------------------------------- siding
+
+    def self.siding(spec)
+      style = (spec['style'] || 'clapboard').to_s
+      raise "Unknown siding style #{style.inspect}. Use clapboard or batten" unless %w[clapboard batten].include?(style)
+      spacing = (spec['spacing'] || (style == 'batten' ? 0.4 : 0.125)).to_f.m
+      raise 'spacing must be at least 0.02 m' if spacing < 0.02.m
+      cb = spec.key?('corner_boards') ? spec['corner_boards'] : 0.09
+      cb = 0.09 if cb == true
+      cb = cb ? cb.to_f : 0.0
+      only = spec['only']
+      skip = spec['skip'] || []
+      force = spec['force'] || []
+      building = spec['building']
+      floor = spec['floor']
+      cell = 0.25.m
+      lines = 0
+      clad = []
+      inside = []
+      ends = []
+      boards = 0
+
+      operation('papan dinding') do |model|
+        targets = []
+        each_group(model, building, floor) do |g, full, _tr, wanted|
+          if g.layer.name == Verify::WALL_TAG
+            id = g.name.to_s.sub(/\ADinding /, '')
+            targets << [g, full, id] if wanted && (only.nil? || only.include?(id)) && !skip.include?(id)
+            false
+          else
+            true
+          end
+        end
+        raise "No walls found (tag #{Verify::WALL_TAG})#{building ? " in #{building}" : ''}; build the floor plan first" if targets.empty?
+
+        targets.each do |g, tr, id|
+          inv = tr.inverse
+          upright = g.entities.grep(Sketchup::Face).select { |f| f.normal.transform(tr).z.abs < 0.01 }
+          next if upright.empty?
+          n0 = upright.max_by(&:area).normal.transform(tr).normalize
+          world = g.entities.grep(Sketchup::Edge).flat_map { |e| e.vertices }.uniq.map { |v| v.position.transform(tr) }
+          zbase = world.map { |q| q.z.to_f }.min
+          ztop = world.map { |q| q.z.to_f }.max
+          ztest = zbase + [1.0.m, (ztop - zbase) / 2.0].min
+          middle = Geom::Point3d.new(*(0..2).map { |i| world.inject(0.0) { |sum, q| sum + q.to_a[i].to_f } / world.length })
+          got = false
+          # Lines already there (an earlier run) are not drawn or counted again.
+          drawn = g.entities.grep(Sketchup::Edge).map { |e| [e.start.position, e.end.position] }
+          draw = lambda do |a, b|
+            mid = Geom::Point3d.linear_combination(0.5, a, 0.5, b)
+            dir = b - a
+            unless drawn.any? { |s, t| (mid.distance(s) + mid.distance(t) - s.distance(t)).abs < 0.01 && (t - s).parallel?(dir) }
+              g.entities.add_line(a, b)
+              drawn << [a, b]
+              lines += 1
+            end
+          end
+          upright.select { |f| f.normal.transform(tr).normalize.dot(n0).abs > 0.99 }.each do |f|
+            n = f.normal.transform(tr).normalize
+            # Outward is away from the body of the wall, whichever way the face is wound.
+            n = n.reverse if (f.bounds.center.transform(tr) - middle).dot(n) < 0
+            tan = Geom::Vector3d.new(-n.y, n.x, 0)
+            u_of = lambda { |q| q.x.to_f * tan.x + q.y.to_f * tan.y }
+            anchor = world.map { |q| u_of.call(q) }.min
+            outer = f.outer_loop.vertices.map { |v| v.position.transform(tr) }
+            p0 = outer[0]
+            u0 = u_of.call(p0)
+            at = lambda { |u, z| Geom::Point3d.new(p0.x + tan.x * (u - u0), p0.y + tan.y * (u - u0), z) }
+            ring = outer.map { |q| [u_of.call(q), q.z.to_f] }
+            holes = (f.loops - [f.outer_loop]).map { |l| l.vertices.map { |v| q = v.position.transform(tr); [u_of.call(q), q.z.to_f] } }
+            fu0 = ring.map(&:first).min
+            fu1 = ring.map(&:first).max
+            fz0 = ring.map(&:last).min
+            fz1 = ring.map(&:last).max
+            next if fu1 - fu0 < 4
+
+            # Which stretches of this face look out on open air.
+            angle = Math.atan2(n.y, n.x)
+            runs = []
+            count = ((fu1 - fu0) / cell).ceil
+            width = (fu1 - fu0) / count
+            count.times do |i|
+              ua = fu0 + i * width
+              origin = at.call(ua + width / 2.0, ztest).offset(n, 0.1.m)
+              next unless force.include?(id) || escapes(model, origin, angle) >= OUTSIDE
+              if runs.last && (runs.last[1] - ua).abs < 0.01
+                runs.last[1] = ua + width
+              else
+                runs << [ua, ua + width]
+              end
+            end
+            next if runs.empty?
+            got = true
+            runs.each do |ra, rb|
+              ends << { pt: at.call(ra, 0), t: tan, n: n, z0: zbase, z1: ztop, wall: id } if (ra - fu0).abs < 1
+              ends << { pt: at.call(rb, 0), t: tan.reverse, n: n, z0: zbase, z1: ztop, wall: id } if (rb - fu1).abs < 1
+            end
+
+            if style == 'clapboard'
+              k = 1
+              while (z = zbase + k * spacing) < fz1 - 0.2
+                k += 1
+                next if z < fz0 + 0.2
+                spans = crossings(ring, z, 1).each_slice(2).select { |pair| pair.length == 2 }
+                spans = subtract(spans, holes.flat_map { |h| crossings(h, z, 1).each_slice(2).select { |pair| pair.length == 2 } })
+                intersect(spans, runs).each do |ua, ub|
+                  draw.call(at.call(ua, z).transform(inv), at.call(ub, z).transform(inv))
+                end
+              end
+            else
+              k = 0
+              while (u = anchor + spacing / 2.0 + k * spacing) < fu1 - 0.2
+                k += 1
+                next if u < fu0 + 0.2 || runs.none? { |ra, rb| u > ra && u < rb }
+                spans = crossings(ring, u, 0).each_slice(2).select { |pair| pair.length == 2 }
+                spans = subtract(spans, holes.flat_map { |h| crossings(h, u, 0).each_slice(2).select { |pair| pair.length == 2 } })
+                spans.each do |za, zb|
+                  next if zb - za < 0.5
+                  draw.call(at.call(u, za).transform(inv), at.call(u, zb).transform(inv))
+                end
+              end
+            end
+          end
+          (got ? clad : inside) << id
+        end
+
+        if cb > 0
+          trim = child(Standards.container((building || 'Bangunan').to_s), 'Lis')
+          prefix = floor ? "Papan Sudut #{floor} " : 'Papan Sudut '
+          trim.entities.grep(Sketchup::Group).select { |g| floor ? g.name.start_with?(prefix) : g.name =~ /\APapan Sudut \d+\z/ }.each(&:erase!)
+          seen = {}
+          e = 0.02.m
+          w = cb.m
+          ends.combination(2) do |a, b|
+            next if a[:wall] == b[:wall] || a[:n].dot(b[:n]).abs > 0.2
+            next if a[:pt].distance(b[:pt]) > 0.4.m
+            next unless a[:t].dot(b[:n]) < -0.5 && b[:t].dot(a[:n]) < -0.5
+            corner = Geom.intersect_line_line([a[:pt], a[:t]], [b[:pt], b[:t]])
+            next unless corner
+            z0 = [a[:z0], b[:z0]].max
+            z1 = [a[:z1], b[:z1]].min
+            next if z1 - z0 < 0.3.m
+            key = [corner.x.to_f.round, corner.y.to_f.round, z0.round]
+            next if seen[key]
+            seen[key] = true
+            plan = [corner.offset(a[:n], e).offset(b[:n], e), corner.offset(a[:t], w).offset(a[:n], e), corner.offset(a[:t], w),
+                    corner, corner.offset(b[:t], w), corner.offset(b[:t], w).offset(b[:n], e)]
+            boards += 1
+            Standards.element("#{prefix}#{boards}", :struktur, trim, 'Dinding - Lis Putih', WHITE) do |ents|
+              loft(ents, plan.map { |q| Geom::Point3d.new(q.x, q.y, z0) }, plan.map { |q| Geom::Point3d.new(q.x, q.y, z1) })
+            end
+          end
+        end
+
+        summary = "Siding (#{style}, every #{format('%.3f', spacing.to_m)} m): #{lines} lines on the outside faces of #{clad.length} walls " \
+                  "(#{clad.join(', ')})"
+        summary += ", #{boards} corner boards" if cb > 0
+        summary += ". No outside face found on: #{inside.join(', ')} (inside walls; use \"force\" if one of them is wrong)" unless inside.empty?
+        summary + ". Look at it with export_scene."
+      end
+    end
+
+    # ------------------------------------------------------------ window trim
+
+    TRIM_NAMES = ['Lis Atas', 'Lis Bawah', 'Shutter Kiri', 'Shutter Kanan'].freeze
+
+    def self.window_trim(spec)
+      building = spec['building']
+      floor = spec['floor']
+      head = spec.key?('head') ? spec['head'] : true
+      sill = spec.key?('sill') ? spec['sill'] : true
+      shutters = spec.key?('shutters') ? spec['shutters'] : true
+      louvre = (spec['louvre'] || 0.035).to_f.m
+      shutter_material = (spec['shutter_material'] || 'Jendela - Shutter Hijau').to_s
+      shutter_color = spec['shutter_color'] || [38, 62, 48]
+      done = []
+      warnings = []
+
+      operation('lis jendela') do |model|
+        units = []
+        each_group(model, building, floor) do |g, full, _tr, wanted|
+          if g.name.to_s =~ /\AJendela /
+            units << [g, full] if wanted
+            false
+          else
+            g.layer.name != Verify::WALL_TAG
+          end
+        end
+        raise "No window units found (groups named 'Jendela ...' made by build_floor_plan)" if units.empty?
+
+        units.each do |unit, tr|
+          unit.entities.grep(Sketchup::Group).select { |g| TRIM_NAMES.include?(g.name) }.each(&:erase!)
+          frame = unit.entities.grep(Sketchup::Group).find { |g| g.name == 'Kusen' }
+          unless frame
+            warnings << "#{unit.name}: no frame (Kusen), skipped"
+            next
+          end
+          b = frame.bounds
+          across = b.width < b.height ? 0 : 1
+          along = 1 - across
+          lo = b.min.to_a.map(&:to_f)
+          hi = b.max.to_a.map(&:to_f)
+          mid = [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, (lo[2] + hi[2]) / 2.0]
+          local = lambda do |a, c, z|
+            along == 0 ? Geom::Point3d.new(a, c, z) : Geom::Point3d.new(c, a, z)
+          end
+          bw = (across == 0 ? Geom::Vector3d.new(1, 0, 0) : Geom::Vector3d.new(0, 1, 0)).transform(tr).normalize
+          reach = 0.5.m
+          free = [1, -1].map do |side|
+            probe = local.call(mid[along], mid[across] + side * reach, mid[2]).transform(tr)
+            escapes(model, probe, Math.atan2(side * bw.y, side * bw.x))
+          end
+          side = free[0] >= free[1] ? 1 : -1
+          if free.max < OUTSIDE || (free.min >= OUTSIDE && !spec['force'])
+            warnings << "#{unit.name}: cannot tell which side is outside (#{free.min >= OUTSIDE ? 'both sides open' : 'both sides enclosed'}), skipped"
+            next
+          end
+
+          # Where the wall face is on the outside, found by looking back at the wall beside the window.
+          surface = nil
+          [1, -1].each do |dir|
+            start = local.call(mid[along] + dir * ((hi[along] - lo[along]) / 2.0 + 0.15.m), mid[across] + side * reach, mid[2]).transform(tr)
+            hit = model.raytest([start, side > 0 ? bw.reverse : bw], true)
+            next unless hit && hit[1].any? { |e| e.respond_to?(:layer) && e.layer.name == Verify::WALL_TAG }
+            surface = mid[across] + side * (reach - start.distance(hit[0]))
+            break
+          end
+          surface ||= (side > 0 ? hi[across] : lo[across]) + side * 0.02.m
+
+          slab = lambda do |ents, a0, a1, depth, z0, z1|
+            c0, c1 = [surface, surface + side * depth].sort
+            ring = [[a0, c0], [a1, c0], [a1, c1], [a0, c1]]
+            loft(ents, ring.map { |a, c| local.call(a, c, z0) }, ring.map { |a, c| local.call(a, c, z1) })
+          end
+          a0 = lo[along]
+          a1 = hi[along]
+          if head
+            Standards.element('Lis Atas', :jendela, unit, 'Jendela - Lis Putih', WHITE) { |ents| slab.call(ents, a0 - 0.04.m, a1 + 0.04.m, 0.03.m, hi[2], hi[2] + 0.10.m) }
+          end
+          if sill
+            Standards.element('Lis Bawah', :jendela, unit, 'Jendela - Lis Putih', WHITE) { |ents| slab.call(ents, a0 - 0.04.m, a1 + 0.04.m, 0.04.m, lo[2] - 0.05.m, lo[2]) }
+          end
+          if shutters
+            ws = (a1 - a0) / 2.0
+            th = 0.03.m
+            [['Shutter Kiri', a0 - ws, a0], ['Shutter Kanan', a1, a1 + ws]].each do |label, s0, s1|
+              Standards.element(label, :jendela, unit, shutter_material, shutter_color) do |ents|
+                slab.call(ents, s0, s1, th, lo[2], hi[2])
+                z = lo[2] + 0.06.m
+                while louvre > 0.01.m && z < hi[2] - 0.06.m
+                  ents.add_line(local.call(s0 + 0.03.m, surface + side * th, z), local.call(s1 - 0.03.m, surface + side * th, z))
+                  z += louvre
+                end
+              end
+            end
+          end
+          done << unit.name
+        end
+
+        parts = [head ? 'head' : nil, sill ? 'sill' : nil, shutters ? 'shutters' : nil].compact.join(', ')
+        summary = "Window trim (#{parts}) added to #{done.length} of #{units.length} windows."
+        summary += " Warnings: " + warnings.join('; ') unless warnings.empty?
+        summary + " Look at it with export_scene."
+      end
+    end
+
+    # ----------------------------------------------------------------- posts
+
+    # Turned profile between the square foot and the square head:
+    # [fraction of the turned length, radius as a fraction of the post size].
+    TURNED = [[0.0, 0.46], [0.04, 0.5], [0.07, 0.36], [0.11, 0.46], [0.3, 0.5], [0.74, 0.3],
+              [0.86, 0.33], [0.9, 0.46], [0.94, 0.34], [1.0, 0.44]].freeze
+    SEGMENTS = 16
+
+    def self.ring(cx, cy, z, shape, r)
+      (0...SEGMENTS).map do |i|
+        a = 2 * Math::PI * i / SEGMENTS
+        k = shape == :square ? r / [Math.cos(a).abs, Math.sin(a).abs].max : r
+        pt(cx + k * Math.cos(a), cy + k * Math.sin(a), z)
+      end
+    end
+
+    def self.soften(ents)
+      ents.grep(Sketchup::Edge).each do |e|
+        fs = e.faces
+        next unless fs.length == 2
+        angle = fs[0].normal.angle_between(fs[1].normal)
+        angle = Math::PI - angle if angle > Math::PI / 2
+        next unless angle < 30.degrees
+        e.soft = true
+        e.smooth = true
+      end
+    end
+
+    def self.posts(spec)
+      points = spec['points'] || raise('add_posts needs "points": [[x, y], ...] in metres')
+      style = (spec['style'] || 'turned').to_s
+      raise "Unknown post style #{style.inspect}. Use turned, square or round" unless %w[turned square round].include?(style)
+      size = (spec['size'] || 0.14).to_f
+      base = (spec['base_z'] || 0).to_f
+      height = (spec['height'] || 2.4).to_f
+      label = (spec['name'] || 'Tiang').to_s
+      foot = (spec['foot'] || [0.75, height * 0.3].min).to_f
+      cap = (spec['cap'] || [0.25, height * 0.12].min).to_f
+      profile = spec['profile'] || TURNED
+      made = 0
+
+      operation(label) do
+        parent = home(spec, 'Teras')
+        parent.entities.grep(Sketchup::Group).select { |g| g.name =~ /\A#{Regexp.escape(label)} \d+\z/ }.each(&:erase!)
+        points.each_with_index do |(x, y), i|
+          Standards.element("#{label} #{i + 1}", :struktur, parent, spec['material'] || 'Struktur - Kayu Putih', spec['color'] || WHITE) do |ents|
+            h = size / 2.0
+            rings = case style
+                    when 'square'
+                      [ring(x, y, base, :square, h), ring(x, y, base + height, :square, h)]
+                    when 'round'
+                      [ring(x, y, base, :round, h), ring(x, y, base + height, :round, h)]
+                    else
+                      z0 = base + foot
+                      z1 = base + height - cap
+                      turned = profile.map { |f, r| ring(x, y, z0 + f.to_f * (z1 - z0), :round, r.to_f * size) }
+                      [ring(x, y, base, :square, h), ring(x, y, z0, :square, h)] + turned +
+                        [ring(x, y, z1, :square, h), ring(x, y, base + height, :square, h)]
+                    end
+            skin(ents, rings)
+            soften(ents)
+          end
+          made += 1
+        end
+        "#{made} posts '#{label} 1..#{made}' (#{style}, #{format('%.2f', size)} m, #{format('%.2f', height)} m high from +#{format('%.2f', base)} m) " \
+          "built in '#{parent.name}'. Look at them with export_scene."
+      end
+    end
+
+    # ---------------------------------------------------------------- stairs
+
+    def self.stairs(spec)
+      start = spec['start'] || raise('build_stairs needs "start": [x, y], the middle of the first riser, in metres')
+      rise = (spec['rise'] || raise('build_stairs needs "rise": the height from floor to floor, in metres')).to_f
+      risers = (spec['risers'] || (rise / 0.18).round).to_i
+      raise 'A stair needs at least 2 risers' if risers < 2
+      r = rise / risers
+      width = (spec['width'] || 0.9).to_f
+      tread = (spec['tread'] || 0.25).to_f
+      base = (spec['base_z'] || 0).to_f
+      waist = (spec['waist'] || 0.12).to_f
+      label = (spec['name'] || 'Tangga').to_s
+      segments = spec['segments'] || [{ 'type' => 'flight', 'treads' => risers - 1 }]
+      angle = (spec['direction'] || 90).to_f.degrees
+      pos = [start[0].to_f, start[1].to_f]
+      dir = [Math.cos(angle), Math.sin(angle)]
+      level = 0
+      parts = 0
+      xs = []
+      ys = []
+      note = lambda do |pts|
+        pts.each do |x, y|
+          xs << x
+          ys << y
+        end
+      end
+
+      operation(label) do
+        parent = child(home(spec), label)
+        parent.entities.grep(Sketchup::Group).each(&:erase!)
+        segments.each do |seg|
+          type = (seg['type'] || 'flight').to_s
+          left = [-dir[1], dir[0]]
+          turn = (seg['turn'] || 'none').to_s
+          sign = turn == 'right' ? -1 : 1
+          parts += 1
+          case type
+          when 'flight'
+            n = (seg['treads'] || 1).to_i
+            z0 = base + level * r
+            profile = level == 0 ? [[0.0, z0]] : [[0.0, z0 - waist]]
+            n.times { |i| profile << [i * tread, z0 + (i + 1) * r] << [(i + 1) * tread, z0 + (i + 1) * r] }
+            profile << [n * tread, z0 + n * r - waist]
+            profile << [[waist * tread / r, n * tread].min, z0] if level == 0
+            side = lambda do |k|
+              profile.map { |s, z| pt(pos[0] + dir[0] * s + left[0] * k, pos[1] + dir[1] * s + left[1] * k, z) }
+            end
+            Standards.element("#{label} #{parts} Lurus", :tangga, parent, spec['material'], spec['color']) do |ents|
+              loft(ents, side.call(-width / 2.0), side.call(width / 2.0))
+            end
+            note.call([-1, 1].flat_map { |k| [0, n * tread].map { |s| [pos[0] + dir[0] * s + left[0] * k * width / 2.0, pos[1] + dir[1] * s + left[1] * k * width / 2.0] } })
+            pos = [pos[0] + dir[0] * n * tread, pos[1] + dir[1] * n * tread]
+            level += n
+          when 'winder', 'landing'
+            raise "#{type} needs \"turn\": \"left\" or \"right\"" if turn == 'none' && type == 'winder'
+            if turn == 'none'
+              length = (seg['length'] || width).to_f
+              plan = [-1, 1].map { |k| [pos[0] + left[0] * k * width / 2.0, pos[1] + left[1] * k * width / 2.0] }
+              plan += [1, -1].map { |k| [pos[0] + dir[0] * length + left[0] * k * width / 2.0, pos[1] + dir[1] * length + left[1] * k * width / 2.0] }
+              top = base + (level + 1) * r
+              Standards.element("#{label} #{parts} Bordes", :tangga, parent, spec['material'], spec['color']) { |ents| prism(ents, plan, top - r, top) }
+              note.call(plan)
+              pos = [pos[0] + dir[0] * length, pos[1] + dir[1] * length]
+              level += 1
+              next
+            end
+            inner = [left[0] * sign, left[1] * sign]
+            pivot = [pos[0] + inner[0] * width / 2.0, pos[1] + inner[1] * width / 2.0]
+            u = [-inner[0], -inner[1]]
+            at = lambda { |a, b| [pivot[0] + u[0] * a + dir[0] * b, pivot[1] + u[1] * a + dir[1] * b] }
+            steps = type == 'winder' ? (seg['steps'] || 3).to_i : 1
+            edge = lambda do |deg|
+              a = deg.degrees
+              deg <= 45 ? at.call(width, width * Math.tan(a)) : at.call(width / Math.tan(a), width)
+            end
+            steps.times do |k|
+              d0 = 90.0 * k / steps
+              d1 = 90.0 * (k + 1) / steps
+              plan = [pivot, edge.call(d0)]
+              plan << at.call(width, width) if d0 < 44.99 && d1 > 45.01
+              plan << edge.call(d1)
+              top = base + (level + k + 1) * r
+              kind = type == 'winder' ? "Putar #{k + 1}" : 'Bordes'
+              Standards.element("#{label} #{parts} #{kind}", :tangga, parent, spec['material'], spec['color']) { |ents| prism(ents, plan, top - r, top) }
+            end
+            note.call([at.call(0, 0), at.call(width, 0), at.call(width, width), at.call(0, width)])
+            pos = [pivot[0] + dir[0] * width / 2.0, pivot[1] + dir[1] * width / 2.0]
+            dir = inner
+            level += steps
+          else
+            raise "Unknown stair segment #{type.inspect}. Use flight, winder or landing"
+          end
+        end
+
+        summary = "Stairs '#{label}': #{risers} risers of #{format('%.4f', r)} m, #{level} treads in #{parts} parts, width #{format('%.2f', width)} m. " \
+                  "The last riser lands at [#{format('%.3f', pos[0])}, #{format('%.3f', pos[1])}] on +#{format('%.3f', base + rise)} m, " \
+                  "walking towards [#{dir[0].round}, #{dir[1].round}]. " \
+                  "Footprint x #{format('%.3f', xs.min)}..#{format('%.3f', xs.max)}, y #{format('%.3f', ys.min)}..#{format('%.3f', ys.max)} m: " \
+                  "the floor above must be open over it (leave it out of the slab outline)."
+        summary += " WARNING: #{level} treads were drawn but #{risers} risers need #{risers - 1}; the top does not meet the floor above." if level != risers - 1
+        r > 0.2 ? summary + " WARNING: risers above 0.20 m are steep." : summary + " Next: check_placement."
+      end
+    end
+
+    # -------------------------------------------------------------- furniture
+
+    WOOD = ['Furnitur - Kayu', [150, 110, 72]].freeze
+    CLOTH = ['Furnitur - Kain Abu', [120, 132, 150]].freeze
+    BEDDING = ['Furnitur - Kain Krem', [214, 208, 190]].freeze
+    CHINA = ['Furnitur - Porselen', [248, 248, 246]].freeze
+    CABINET = ['Furnitur - Kabinet Putih', [236, 234, 226]].freeze
+    STEEL = ['Furnitur - Baja', [170, 174, 178]].freeze
+    # type => [name, width, depth, height, material]. Width runs along local x,
+    # the back of the piece is at +y (rotation 0 puts the back to the north).
+    CATALOGUE = {
+      'bed' => ['Kasur', 1.6, 2.0, 0.5, BEDDING], 'sofa' => ['Sofa', 2.0, 0.9, 0.8, CLOTH],
+      'table' => ['Meja', 1.6, 0.9, 0.75, WOOD], 'chair' => ['Kursi', 0.45, 0.45, 0.9, WOOD],
+      'desk' => ['Meja Kerja', 1.2, 0.6, 0.75, WOOD], 'cabinet' => ['Kabinet', 1.2, 0.6, 0.9, CABINET],
+      'wardrobe' => ['Lemari', 1.2, 0.6, 2.0, WOOD], 'fridge' => ['Kulkas', 0.7, 0.7, 1.8, STEEL],
+      'stove' => ['Kompor', 0.6, 0.6, 0.9, STEEL], 'toilet' => ['Kloset', 0.4, 0.7, 0.8, CHINA],
+      'sink' => ['Wastafel', 0.6, 0.5, 0.85, CABINET], 'bathtub' => ['Bathtub', 0.75, 1.7, 0.55, CHINA],
+      'shower' => ['Shower', 0.9, 0.9, 0.08, CHINA]
+    }.freeze
+    ALIASES = { 'kasur' => 'bed', 'meja' => 'table', 'kursi' => 'chair', 'meja kerja' => 'desk', 'kabinet' => 'cabinet',
+                'lemari' => 'wardrobe', 'kulkas' => 'fridge', 'kompor' => 'stove', 'kloset' => 'toilet', 'wastafel' => 'sink' }.freeze
+
+    def self.piece(ents, type, w, d, h)
+      x = w / 2.0
+      y = d / 2.0
+      case type
+      when 'bed'
+        box(ents, -x, x, -y, y, 0, h)
+        box(ents, -x - 0.02, x + 0.02, y, y + 0.05, 0, h + 0.5)
+        before = ents.grep(Sketchup::Face)
+        pw = w / 2.0 - 0.12
+        [-1, 1].each do |k|
+          cx = k * w / 4.0
+          box(ents, cx - pw / 2.0, cx + pw / 2.0, y - 0.5, y - 0.1, h, h + 0.1)
+        end
+        paint(ents.grep(Sketchup::Face) - before, Standards.material(:furnitur, *CHINA))
+      when 'sofa'
+        box(ents, -x, x, -y, y, 0, 0.42)
+        box(ents, -x, x, y - 0.2, y, 0.42, h)
+        box(ents, -x, -x + 0.2, -y, y - 0.2, 0.42, 0.62)
+        box(ents, x - 0.2, x, -y, y - 0.2, 0.42, 0.62)
+      when 'table', 'desk'
+        box(ents, -x, x, -y, y, h - 0.04, h)
+        [[-x, -y], [x - 0.06, -y], [-x, y - 0.06], [x - 0.06, y - 0.06]].each { |lx, ly| box(ents, lx, lx + 0.06, ly, ly + 0.06, 0, h - 0.04) }
+      when 'chair'
+        box(ents, -x, x, -y, y, 0.41, 0.45)
+        [[-x, -y], [x - 0.04, -y], [-x, y - 0.04], [x - 0.04, y - 0.04]].each { |lx, ly| box(ents, lx, lx + 0.04, ly, ly + 0.04, 0, 0.41) }
+        box(ents, -x, x, y - 0.04, y, 0.45, h)
+      when 'toilet'
+        box(ents, -x, x, y - 0.2, y, 0, h)
+        box(ents, -x + 0.02, x - 0.02, -y, y - 0.2, 0, 0.4)
+      when 'bathtub'
+        rim = 0.07
+        box(ents, -x, x, -y, y, 0, 0.12)
+        box(ents, -x, -x + rim, -y, y, 0.12, h)
+        box(ents, x - rim, x, -y, y, 0.12, h)
+        box(ents, -x + rim, x - rim, -y, -y + rim, 0.12, h)
+        box(ents, -x + rim, x - rim, y - rim, y, 0.12, h)
+      else
+        box(ents, -x, x, -y, y, 0, h)
+      end
+    end
+
+    def self.furniture(spec)
+      items = spec['items'] || raise('place_furniture needs "items": [{"type": "bed", "at": [x, y]}, ...]')
+      base = (spec['base_z'] || 0).to_f
+      counts = Hash.new(0)
+      placed = []
+
+      operation('perabot') do
+        parent = home(spec, spec['floor'])
+        items.each do |item|
+          type = item['type'].to_s.downcase
+          type = ALIASES[type] || type
+          row = CATALOGUE[type] || raise("Unknown furniture type #{item['type'].inspect}. Use one of: #{CATALOGUE.keys.join(', ')}")
+          at = item['at'] || raise("#{type}: needs \"at\": [x, y], the middle of the piece, in metres")
+          w, d, h = item['size'] || row[1..3]
+          counts[type] += 1
+          name = (item['name'] || "#{row[0]} #{counts[type]}").to_s
+          parent.entities.grep(Sketchup::Group).select { |g| g.name == name }.each(&:erase!)
+          material, rgb = item['material'] ? [item['material'], item['color']] : row[4]
+          group = Standards.element(name, :furnitur, parent, material, rgb) { |ents| piece(ents, type, w.to_f, d.to_f, h.to_f) }
+          z = (item['z'] || base).to_f
+          group.transformation = Geom::Transformation.translation(Geom::Vector3d.new(at[0].to_f.m, at[1].to_f.m, z.m)) *
+                                 Geom::Transformation.rotation(ORIGIN, Z_AXIS, (item['rotation'] || 0).to_f.degrees)
+          placed << name
+        end
+        "#{placed.length} pieces placed in '#{parent.name}': #{placed.join(', ')}.\n" + Placement.report('building' => spec['building'])
+      end
+    end
+  end
+
+  def self.build_roof(spec)
+    Detail.roof(spec)
+  end
+
+  def self.add_siding(spec = {})
+    Detail.siding(spec)
+  end
+
+  def self.add_window_trim(spec = {})
+    Detail.window_trim(spec)
+  end
+
+  def self.add_posts(spec)
+    Detail.posts(spec)
+  end
+
+  def self.build_stairs(spec)
+    Detail.stairs(spec)
+  end
+
+  def self.place_furniture(spec)
+    Detail.furniture(spec)
+  end
+
 
   def self.tag(kind)
     Standards.tag(kind)
@@ -1132,6 +2030,18 @@ module SU_MCP
           { success: true, result: Placement.report(args) }
         when "export_views"
           { success: true, result: Views.export(args) }
+        when "build_roof"
+          { success: true, result: Detail.roof(detail_spec(args)) }
+        when "add_siding"
+          { success: true, result: Detail.siding(detail_spec(args)) }
+        when "add_window_trim"
+          { success: true, result: Detail.window_trim(detail_spec(args)) }
+        when "add_posts"
+          { success: true, result: Detail.posts(detail_spec(args)) }
+        when "build_stairs"
+          { success: true, result: Detail.stairs(detail_spec(args)) }
+        when "place_furniture"
+          { success: true, result: Detail.furniture(detail_spec(args)) }
         when "eval_ruby"
           eval_ruby(args)
         else
@@ -3108,6 +4018,11 @@ module SU_MCP
                 "then SU_MCP.audit_model after adding anything else."
       summary += " Warnings: " + warnings.join("; ") unless warnings.empty?
       { success: true, id: root.entityID, result: summary }
+    end
+
+    def detail_spec(params)
+      spec = (params && params["spec"]) || params || {}
+      spec.is_a?(String) ? JSON.parse(spec) : spec
     end
 
     # Dimensioned top-view scene of the built plan.
