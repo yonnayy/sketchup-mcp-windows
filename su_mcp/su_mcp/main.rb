@@ -476,6 +476,369 @@ module SU_MCP
     Plan.build(spec)
   end
 
+  # Checks stairs and furniture against doors and walls, so that something
+  # placed from guessed coordinates is caught before the user sees it.
+  # See docs/WORKFLOW.md.
+  module Placement
+    PLACED_KINDS = %w[tangga furnitur].freeze
+    DOOR_NAME = /\APintu /.freeze
+    # Above this many faces an element is tested by its bounding box only.
+    FACE_LIMIT = 4000
+
+    def self.inner(entity)
+      entity.is_a?(Sketchup::Group) ? entity.entities : entity.definition.entities
+    end
+
+    def self.local_bounds(entity)
+      entity.is_a?(Sketchup::Group) ? entity.local_bounds : entity.definition.bounds
+    end
+
+    # [[xmin, ymin, zmin], [xmax, ymax, zmax]] in inches.
+    def self.box(points)
+      xs = points.map { |p| p.x.to_f }
+      ys = points.map { |p| p.y.to_f }
+      zs = points.map { |p| p.z.to_f }
+      [[xs.min, ys.min, zs.min], [xs.max, ys.max, zs.max]]
+    end
+
+    def self.corners(bounds, tr = nil)
+      (0..7).map { |i| tr ? bounds.corner(i).transform(tr) : bounds.corner(i) }
+    end
+
+    def self.touch?(a, b)
+      (0..2).all? { |i| a[0][i] <= b[1][i] && a[1][i] >= b[0][i] }
+    end
+
+    def self.shrink(b, by)
+      [b[0].map { |v| v + by }, b[1].map { |v| v - by }]
+    end
+
+    # World-space triangles of every face in the element, nested groups included.
+    def self.faces(entities, tr, out)
+      entities.each do |e|
+        return out if out.length > FACE_LIMIT
+        if e.is_a?(Sketchup::Face)
+          # Triangles, not the face outline: a stair stringer is one large
+          # L-shaped face, and its bounding box would include the void under it.
+          mesh = e.mesh(0)
+          mesh.polygons.each { |poly| out << poly.map { |i| mesh.point_at(i.abs).transform(tr) } }
+        elsif e.is_a?(Sketchup::Group) || e.is_a?(Sketchup::ComponentInstance)
+          faces(inner(e), tr * e.transformation, out)
+        end
+      end
+      out
+    end
+
+    def self.collect(model, building, tags)
+      placed = []
+      doors = []
+      walls = []
+      walk = lambda do |entities, tr, names|
+        entities.each do |e|
+          next unless e.is_a?(Sketchup::Group) || e.is_a?(Sketchup::ComponentInstance)
+          next if e.hidden? || !e.layer.visible?
+          here = names + [e.name.to_s]
+          wanted = building.nil? || here.include?(building.to_s)
+          label = here.reject(&:empty?).join(' > ')
+          full = tr * e.transformation
+          if tags.include?(e.layer.name)
+            next unless wanted
+            parts = faces(inner(e), full, [])
+            world = box(corners(e.bounds, tr))
+            parts = [corners(e.bounds, tr)] if parts.empty? || parts.length > FACE_LIMIT
+            placed << { label: label, box: world, parts: parts }
+          elsif e.layer.name == Verify::WALL_TAG
+            next unless wanted
+            walls << { label: label, box: box(corners(e.bounds, tr)), to_local: full.inverse,
+                       zone: box(corners(local_bounds(e))) }
+          elsif e.name.to_s =~ DOOR_NAME
+            doors << door(e, label, tr, full) if wanted
+          else
+            walk.call(inner(e), full, here)
+          end
+        end
+      end
+      walk.call(model.entities, Geom::Transformation.new, [])
+      [placed, doors, walls]
+    end
+
+    # A door unit as two zones in the unit's own axes: the clear passage either
+    # side of the frame, and the floor area the open leaf sweeps over.
+    def self.door(unit, label, tr, full)
+      children = inner(unit).select { |c| c.is_a?(Sketchup::Group) || c.is_a?(Sketchup::ComponentInstance) }
+      frame = children.find { |c| c.name == 'Kusen' }
+      swing = children.find { |c| c.name == 'Ayun' }
+      base = box(corners((frame || unit).bounds)) if frame
+      base ||= box(corners(local_bounds(unit)))
+      { label: label, box: box(corners(unit.bounds, tr)), to_local: full.inverse, frame: !frame.nil?,
+        base: base, top: base[1][2], swing: swing ? box(corners(swing.bounds)) : nil }
+    end
+
+    def self.passage(door, clearance)
+      lo = door[:base][0].dup
+      hi = door[:base][1].dup
+      return [lo, hi] unless door[:frame]
+      # The frame is thin across the wall and wide along it.
+      across = (hi[0] - lo[0]) < (hi[1] - lo[1]) ? 0 : 1
+      lo[across] -= clearance
+      hi[across] += clearance
+      [lo, hi]
+    end
+
+    def self.where(point)
+      format('[%.2f, %.2f, %.2f] m', point.x.to_f.to_m, point.y.to_f.to_m, point.z.to_f.to_m)
+    end
+
+    # Triangle against axis-aligned box (separating axes, Akenine-Moller).
+    def self.triangle_in_box?(pts, zone)
+      c = (0..2).map { |i| (zone[0][i] + zone[1][i]) / 2.0 }
+      h = (0..2).map { |i| (zone[1][i] - zone[0][i]) / 2.0 }
+      v = pts.map { |p| [p.x.to_f - c[0], p.y.to_f - c[1], p.z.to_f - c[2]] }
+      e = [0, 1, 2].map { |i| (0..2).map { |k| v[(i + 1) % 3][k] - v[i][k] } }
+      cross = lambda { |a, b| [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]] }
+      dot = lambda { |a, b| a[0] * b[0] + a[1] * b[1] + a[2] * b[2] }
+      n = cross.call(e[0], e[1])
+      return false if dot.call(n, v[0]).abs > (0..2).inject(0.0) { |sum, k| sum + h[k] * n[k].abs }
+      unit = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+      unit.each do |u|
+        e.each do |edge|
+          a = cross.call(u, edge)
+          ps = v.map { |q| dot.call(a, q) }
+          r = (0..2).inject(0.0) { |sum, k| sum + h[k] * a[k].abs }
+          return false if ps.min > r || ps.max < -r
+        end
+      end
+      true
+    end
+
+    # World point where the element enters zone (given in the axes that
+    # to_local maps world points into), or nil.
+    def self.hit(item, to_local, zone)
+      item[:parts].each do |pts|
+        local = pts.map { |p| p.transform(to_local) }
+        b = box(local)
+        next unless touch?(b, zone)
+        next if local.length == 3 && !triangle_in_box?(local, zone)
+        mid = (0..2).map { |i| ([b[0][i], zone[0][i]].max + [b[1][i], zone[1][i]].min) / 2.0 }
+        return Geom::Point3d.new(*mid).transform(to_local.inverse)
+      end
+      nil
+    end
+
+    def self.report(opts = {})
+      model = Sketchup.active_model
+      return "PLACEMENT FAILED. No model is open." unless model
+      opts ||= {}
+      building = opts['building']
+      clearance = (opts['clearance'] || 0.6).to_f.m
+      tol = (opts['tolerance'] || 0.01).to_f.m
+      kinds = opts['kinds'] || PLACED_KINDS
+      tags = kinds.map { |k| Standards.row(k)[0] }
+      placed, doors, walls = collect(model, building, tags)
+      reach = clearance + tol
+      problems = []
+      notes = []
+
+      placed.each do |item|
+        grown = [item[:box][0].map { |v| v - reach }, item[:box][1].map { |v| v + reach }]
+        doors.each do |d|
+          next unless touch?(grown, d[:box])
+          found = hit(item, d[:to_local], shrink(passage(d, clearance), tol))
+          if found
+            problems << "MENGHALANGI PINTU  #{item[:label]} is inside the #{format('%.2f', clearance.to_m)} m clear passage of #{d[:label]} at #{where(found)}"
+            next
+          end
+          next unless d[:swing]
+          sweep = [d[:swing][0].dup, d[:swing][1].dup]
+          sweep[1][2] = d[:top]
+          found = hit(item, d[:to_local], shrink(sweep, tol))
+          problems << "DI AYUNAN PINTU    #{item[:label]} is where the leaf of #{d[:label]} swings, at #{where(found)}" if found
+        end
+        walls.each do |w|
+          next unless touch?(item[:box], w[:box])
+          found = hit(item, w[:to_local], shrink(w[:zone], tol))
+          problems << "MENEMBUS DINDING   #{item[:label]} goes into wall #{w[:label]} at #{where(found)}" if found
+        end
+      end
+      placed.combination(2) do |a, b|
+        next unless touch?(shrink(a[:box], tol), shrink(b[:box], tol))
+        notes << "PERIKSA            #{a[:label]} and #{b[:label]} share space (fine for a chair under a table, wrong for two beds)"
+      end
+
+      # Findings the user has accepted (a closet door under the stairs needs
+      # no clear passage on the closet side) are listed but do not fail the check.
+      accepted = (opts['accept'] || []).map(&:to_s)
+      waived, problems = problems.partition { |line| accepted.any? { |a| line.include?(a) } }
+      notes = waived.map { |line| "DITERIMA           #{line.sub(/\A[A-Z ]+?\s{2,}/, '')}" } + notes
+
+      head = "#{placed.length} elements (#{kinds.join(', ')}) checked against #{doors.length} doors and #{walls.length} walls, " \
+             "door clearance #{format('%.2f', clearance.to_m)} m."
+      lines = problems.first(40) + notes.first(20)
+      if problems.empty?
+        "PLACEMENT OK. #{head}" + (lines.empty? ? '' : "\n" + lines.join("\n"))
+      else
+        "PLACEMENT CONFLICT. #{head} #{problems.length} problem(s):\n" + lines.join("\n")
+      end
+    end
+  end
+
+  def self.check_placement(opts = {})
+    Placement.report(opts)
+  end
+
+  # Exports every scene to one folder in a single step, and remembers the
+  # state of the model so that pictures taken before a later change are
+  # reported as stale. See docs/WORKFLOW.md.
+  module Views
+    MANIFEST = 'views.json'.freeze
+
+    class Watch < Sketchup::ModelObserver
+      attr_reader :count
+
+      def initialize
+        @count = 0
+      end
+
+      def onTransactionCommit(_model)
+        @count += 1
+      end
+
+      def onTransactionUndo(_model)
+        @count += 1
+      end
+
+      def onTransactionRedo(_model)
+        @count += 1
+      end
+    end
+
+    @state = nil
+
+    def self.state_for(model)
+      return @state if @state && @state[:model] == model
+      watch = Watch.new
+      model.add_observer(watch)
+      @state = { model: model, watch: watch, at: nil, time: nil, folder: nil, files: [] }
+    end
+
+    def self.default_folder(model)
+      if model.path.to_s.empty?
+        base = File.join(ENV['TEMP'] || ENV['TMP'] || Dir.tmpdir, 'sketchup_exports')
+        File.join(base, "views_#{Time.now.strftime('%Y%m%d_%H%M%S')}")
+      else
+        File.join(File.dirname(model.path), "#{File.basename(model.path, '.*')}-gambar")
+      end
+    end
+
+    def self.status
+      model = Sketchup.active_model
+      return "VIEWS FAILED. No model is open." unless model
+      state = state_for(model)
+      return "VIEWS UNKNOWN. export_views has not run for this model in this SketchUp session; run it before showing pictures." unless state[:at]
+      changes = state[:watch].count - state[:at]
+      where = "#{state[:files].length} pictures in #{state[:folder]} (exported #{state[:time].strftime('%H:%M:%S')})"
+      if changes == 0
+        "VIEWS CURRENT. #{where} match the model."
+      else
+        "VIEWS STALE. #{changes} change(s) to the model since the #{where}. Run export_views again before showing them."
+      end
+    end
+
+    def self.export(opts = {})
+      model = Sketchup.active_model
+      raise "No model is open in SketchUp" unless model
+      opts ||= {}
+      return status if opts['check_only']
+      state = state_for(model)
+      pages = model.pages.to_a
+      wanted = opts['scenes']
+      if wanted && !wanted.empty?
+        missing = wanted - pages.map(&:name)
+        raise "No scene named #{missing.join(', ')}. Scenes: #{pages.map(&:name).join(', ')}" unless missing.empty?
+        pages = pages.select { |p| wanted.include?(p.name) }
+      end
+      raise "The model has no scenes. Make them first: add_plan_view, or set the camera and call model.pages.add('Depan')." if pages.empty?
+
+      folder = (opts['folder'] || default_folder(model)).to_s
+      FileUtils.mkdir_p(folder)
+      width = (opts['width'] || 1920).to_i
+      height = (opts['height'] || 1080).to_i
+      manifest = File.join(folder, MANIFEST)
+      earlier = File.exist?(manifest) ? (JSON.parse(File.read(manifest))['files'] rescue []) : []
+
+      # Scenes switch at once; an animated transition would be caught half way.
+      model.options['PageOptions']['ShowTransition'] = false
+      view = model.active_view
+      back = model.pages.selected_page
+      files = []
+      all = model.pages.to_a
+      pages.each do |page|
+        model.pages.selected_page = page
+        if page.use_camera?
+          c = page.camera
+          camera = Sketchup::Camera.new(c.eye, c.target, c.up, c.perspective?)
+          c.perspective? ? camera.fov = c.fov : camera.height = c.height
+          view.camera = camera
+        end
+        name = format('%02d-%s.png', all.index(page) + 1, page.name.gsub(/[\\\/:*?"<>|]/, '-'))
+        # Opaque: in a transparent PNG everything not covered by geometry shows black.
+        # A drawing (plan, elevation: parallel projection) goes on white paper.
+        # Sky and ground belong to the style, which all scenes share, so a
+        # scene cannot switch them off for itself; and in parallel projection
+        # SketchUp paints them as flat bands across the picture.
+        ro = model.rendering_options
+        paper = nil
+        unless view.camera.perspective?
+          paper = %w[DrawHorizon DrawGround BackgroundColor].map { |k| [k, ro[k]] }
+          ro['DrawHorizon'] = false
+          ro['DrawGround'] = false
+          ro['BackgroundColor'] = Sketchup::Color.new(255, 255, 255)
+        end
+        begin
+          ok = view.write_image(filename: File.join(folder, name), width: width, height: height,
+                                antialias: true, transparent: false)
+        ensure
+          paper.each { |k, v| ro[k] = v } if paper
+        end
+        raise "SketchUp could not write #{name}" unless ok
+        files << name
+      end
+      model.pages.selected_page = back if back
+
+      # Pictures this tool wrote earlier for scenes that no longer exist would
+      # otherwise sit in the folder looking current.
+      removed = []
+      if wanted.nil? || wanted.empty?
+        (earlier - files).each do |old|
+          path = File.join(folder, old)
+          next unless old =~ /\A\d\d-.*\.png\z/ && File.exist?(path)
+          File.delete(path)
+          removed << old
+        end
+        kept = files
+      else
+        kept = (earlier | files)
+      end
+      File.write(manifest, JSON.pretty_generate('model' => model.path.to_s, 'exported' => Time.now.strftime('%Y-%m-%d %H:%M:%S'), 'files' => kept))
+
+      state[:at] = state[:watch].count
+      state[:time] = Time.now
+      state[:folder] = folder
+      state[:files] = kept
+      summary = "VIEWS EXPORTED. #{files.length} scene(s), #{width} x #{height}, to #{folder}:\n" + files.join("\n")
+      summary += "\nRemoved pictures of scenes that no longer exist: #{removed.join(', ')}" unless removed.empty?
+      summary
+    end
+  end
+
+  def self.export_views(opts = {})
+    Views.export(opts)
+  end
+
+  def self.views_status
+    Views.status
+  end
+
   def self.tag(kind)
     Standards.tag(kind)
   end
@@ -765,6 +1128,10 @@ module SU_MCP
           verify_dimensions(args)
         when "add_plan_view"
           add_plan_view(args)
+        when "check_placement"
+          { success: true, result: Placement.report(args) }
+        when "export_views"
+          { success: true, result: Views.export(args) }
         when "eval_ruby"
           eval_ruby(args)
         else

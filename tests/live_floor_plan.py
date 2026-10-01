@@ -10,7 +10,9 @@ Run:  uv run --project . python tests/live_floor_plan.py
 """
 import asyncio
 import json
+import os
 import sys
+import tempfile
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -178,6 +180,20 @@ model.commit_operation
 '''
 
 
+# A cupboard standing right behind the front door (W1): check_placement must object.
+BLOCKER = """
+model = Sketchup.active_model
+model.start_operation('MCP TEST: lemari', true)
+SU_MCP.element('Lemari Uji', :furnitur, SU_MCP.container('MCP TEST')) do |ents|
+  f = ents.add_face([%(x0)s.m, 0.3.m, 0.12.m], [%(x1)s.m, 0.3.m, 0.12.m], [%(x1)s.m, 0.7.m, 0.12.m], [%(x0)s.m, 0.7.m, 0.12.m])
+  f.reverse! if f.normal.z < 0
+  f.pushpull(1.m)
+end
+model.commit_operation
+'ok'
+""" % {"x0": OX + 1.2, "x1": OX + 1.8}
+
+
 def text(result) -> str:
     return result.content[0].text
 
@@ -250,6 +266,27 @@ async def run() -> int:
                 assert "MCP TEST" not in audit, audit
                 shot = json.loads(text(await session.call_tool("export_scene", {"format": "png"})))
                 print("png     :", shot["content"][0]["text"])
+
+                placed = json.loads(text(await session.call_tool("check_placement", {"building": "MCP TEST"})))
+                assert placed["content"][0]["text"].startswith("PLACEMENT OK"), placed
+                await ruby(session, BLOCKER)
+                placed = json.loads(text(await session.call_tool("check_placement", {"building": "MCP TEST"})))
+                verdict = placed["content"][0]["text"]
+                print(verdict)
+                assert verdict.startswith("PLACEMENT CONFLICT") and "MENGHALANGI PINTU" in verdict, verdict
+
+                folder = tempfile.mkdtemp(prefix="su_mcp_views_")
+                views = json.loads(text(await session.call_tool("export_views", {"scenes": ["MCP TEST Denah"], "folder": folder})))
+                made = views["content"][0]["text"]
+                print(made)
+                assert made.startswith("VIEWS EXPORTED. 1 scene(s)"), made
+                assert any(f.endswith("-MCP TEST Denah.png") for f in os.listdir(folder)), os.listdir(folder)
+                state = json.loads(text(await session.call_tool("export_views", {"check_only": True})))
+                assert state["content"][0]["text"].startswith("VIEWS CURRENT"), state
+                await ruby(session, BLOCKER.replace("Lemari Uji", "Lemari Uji 2"))
+                state = json.loads(text(await session.call_tool("export_views", {"check_only": True})))
+                assert state["content"][0]["text"].startswith("VIEWS STALE"), state
+                print("stale pictures are reported: yes")
             finally:
                 print("cleanup :", await ruby(session, CLEANUP % pages_before))
     print("OK")

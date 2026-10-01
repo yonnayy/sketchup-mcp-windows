@@ -6,7 +6,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Dict, Any, List
+from typing import AsyncIterator, Dict, Any, List, Optional
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, 
@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger("SketchupMCPServer")
 
 # Define version directly to avoid pkg_resources dependency
-__version__ = "0.6.1"
+__version__ = "0.7.0"
 logger.info(f"SketchupMCP Server version {__version__} starting up")
 
 @dataclass
@@ -280,7 +280,11 @@ mcp = FastMCP(
         "the plan dimensions are measured to (ref center/left/right); 3) verify_dimensions against the plan "
         "and report the result to the user; 4) add_plan_view for a dimensioned plan drawing the user can "
         "compare with the original. "
-        "Check your work with export_scene(format='png') and look at the image."
+        "Never guess coordinates for stairs or furniture: read them from the drawings, then run "
+        "check_placement (it must answer PLACEMENT OK). "
+        "While working, check yourself with export_scene(format='png') and look at the image. "
+        "Pictures for the user come from export_views, run as the last step after the final change, "
+        "and you look at every one of them before passing them on (docs/WORKFLOW.md)."
     ),
     lifespan=server_lifespan
 )
@@ -656,6 +660,96 @@ def add_plan_view(
         return json.dumps(result)
     except Exception as e:
         return f"Error creating plan view: {str(e)}"
+
+@mcp.tool()
+def check_placement(
+    ctx: Context,
+    building: Optional[str] = None,
+    clearance: float = 0.6,
+    accept: Optional[List[str]] = None
+) -> str:
+    """Check stairs and furniture against doors and walls. Run it after placing
+    anything inside a building, before showing the result.
+
+    Every element on the tags 07-Tangga and 08-Furnitur is tested, by its real
+    geometry, against:
+      MENGHALANGI PINTU  it stands in the clear passage in front of or behind
+                         a door (`clearance` metres either side of the frame)
+      DI AYUNAN PINTU    it stands where the door leaf swings
+      MENEMBUS DINDING   it goes into a wall by more than 1 cm
+      PERIKSA            two placed elements share space (a note, not a failure)
+    Each line names both elements and the point [x, y, z] in metres.
+    `building` limits the check to one building container. `accept` is a list
+    of texts (for example ["Pintu UW-1"]): findings containing one of them are
+    listed as DITERIMA and do not fail the check. Use it only for a finding the
+    user has agreed is intended, such as a closet door under the stairs.
+    The reply starts with PLACEMENT OK or PLACEMENT CONFLICT. A conflict means
+    the coordinates were wrong: go back to the drawing, move the element, run
+    it again. Do not guess coordinates for stairs or furniture; read them from
+    the plan first.
+    """
+    try:
+        sketchup = get_sketchup_connection()
+        arguments: Dict[str, Any] = {"clearance": clearance}
+        if building:
+            arguments["building"] = building
+        if accept:
+            arguments["accept"] = accept
+        result = sketchup.send_command(
+            method="tools/call",
+            params={"name": "check_placement", "arguments": arguments},
+            request_id=ctx.request_id
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return f"Error checking placement: {str(e)}"
+
+@mcp.tool()
+def export_views(
+    ctx: Context,
+    scenes: Optional[List[str]] = None,
+    folder: Optional[str] = None,
+    width: int = 1920,
+    height: int = 1080,
+    check_only: bool = False
+) -> str:
+    """Export every scene of the model to PNG files in one folder, in one step.
+    Make this the LAST step, after the final change to the model, so that no
+    picture shows an older state than the model.
+
+    Files are named "<scene number>-<scene name>.png" and overwrite the
+    previous export, so the folder always holds one current set. Default
+    folder: "<model name>-gambar" next to the saved .skp (a folder in %TEMP%
+    when the model has never been saved). `scenes` limits the export to those
+    scene names. Pictures are opaque; scenes in parallel projection (plans,
+    elevations) are drawn on a white background without sky or ground.
+    The model needs scenes first: add_plan_view makes plan scenes; for others
+    set the camera in eval_ruby and call model.pages.add("Depan").
+    check_only=True exports nothing and answers whether the last export still
+    matches the model: VIEWS CURRENT, VIEWS STALE (the model changed since) or
+    VIEWS UNKNOWN (never exported in this SketchUp session). Call it before
+    showing pictures that were exported earlier. After exporting, open every
+    picture and look at it before passing it on.
+    """
+    try:
+        sketchup = get_sketchup_connection()
+        arguments: Dict[str, Any] = {"width": width, "height": height, "check_only": check_only}
+        if scenes:
+            arguments["scenes"] = scenes
+        if folder:
+            arguments["folder"] = folder
+        sketchup.timeout = 300.0
+        try:
+            result = sketchup.send_command(
+                method="tools/call",
+                params={"name": "export_views", "arguments": arguments},
+                request_id=ctx.request_id
+            )
+        finally:
+            sketchup.timeout = 15.0
+        return json.dumps(result)
+    except Exception as e:
+        return f"Error exporting views: {str(e)}"
 
 @mcp.tool()
 def eval_ruby(

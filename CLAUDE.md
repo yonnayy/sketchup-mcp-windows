@@ -3,7 +3,7 @@
 Repo ini berisi MCP server yang menghubungkan Claude ke SketchUp di Windows.
 
 - Diminta **memasang** di sebuah komputer: ikuti `docs/INSTALL.md` dari awal sampai Langkah 5, jangan melompati verifikasi.
-- Diminta **memodelkan** (terutama dari denah): baca `docs/STANDARDS.md` lalu `docs/MODELING.md`. Setiap elemen harus punya tag dan material baku, dan pekerjaan baru selesai kalau `SU_MCP.audit_model` menjawab `AUDIT OK`. Untuk denah berdimensi urutannya tetap: `check_dimension_chains`, `build_floor_plan` dengan `ref` yang sesuai cara denah diberi ukuran, lalu `verify_dimensions`, dan laporan akurasinya disampaikan ke pengguna. Satuan internal SketchUp adalah inci; `build_floor_plan` memakai meter.
+- Diminta **memodelkan** (terutama dari denah): baca `docs/STANDARDS.md` lalu `docs/MODELING.md`. Setiap elemen harus punya tag dan material baku, dan pekerjaan baru selesai kalau `SU_MCP.audit_model` menjawab `AUDIT OK`. Untuk denah berdimensi urutannya tetap: `check_dimension_chains`, `build_floor_plan` dengan `ref` yang sesuai cara denah diberi ukuran, lalu `verify_dimensions`, dan laporan akurasinya disampaikan ke pengguna. Satuan internal SketchUp adalah inci; `build_floor_plan` memakai meter. Untuk proyek di luar model contoh ikuti `docs/WORKFLOW.md`: posisi tangga dan perabot dibaca dari gambar lalu dicek dengan `check_placement`, dan gambar untuk pengguna diekspor paling akhir dengan `export_views`.
 - Ada yang **tidak jalan**: jalankan `check.ps1`, lalu lihat `docs/TROUBLESHOOTING.md`.
 
 ## Struktur
