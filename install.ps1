@@ -49,7 +49,7 @@ if (Test-Path $suBase) {
 }
 if ($pluginDirs.Count -eq 0) {
     Warn 'No SketchUp profile folder found. Install SketchUp, open it once, then run this installer again.'
-    Warn "Manual alternative: Extension Manager > Install Extension > $root\release\su_mcp_v1.6.1.rbz"
+    Warn "Manual alternative: Extension Manager > Install Extension > $root\release\su_mcp.rbz"
 } else {
     foreach ($dir in $pluginDirs) {
         New-Item -ItemType Directory -Force (Join-Path $dir 'su_mcp') | Out-Null

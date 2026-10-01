@@ -16,6 +16,169 @@ module SU_MCP
     Sketchup.write_default(PREF_SECTION, 'autostart', value ? true : false)
   end
 
+  # House rules for every model built through MCP: which tag and which
+  # material each kind of building element gets. See docs/STANDARDS.md.
+  module Standards
+    # kind => [tag, default material, [r, g, b], opacity]
+    TABLE = {
+      'referensi' => ['00-Referensi', nil, nil, 1.0],
+      'dinding'   => ['01-Dinding', 'Dinding - Cat Putih', [240, 238, 230], 1.0],
+      'lantai'    => ['02-Lantai', 'Lantai - Keramik', [200, 195, 185], 1.0],
+      'pintu'     => ['03-Pintu', 'Pintu - Kayu', [140, 95, 60], 1.0],
+      'jendela'   => ['04-Jendela', 'Jendela - Kaca', [150, 200, 220], 0.4],
+      'atap'      => ['05-Atap', 'Atap - Genteng', [150, 70, 50], 1.0],
+      'struktur'  => ['06-Struktur', 'Struktur - Beton', [170, 170, 170], 1.0],
+      'tangga'    => ['07-Tangga', 'Tangga - Beton', [170, 170, 170], 1.0],
+      'furnitur'  => ['08-Furnitur', 'Furnitur - Kayu', [180, 140, 100], 1.0],
+      'tapak'     => ['09-Tapak', 'Tapak - Rumput', [120, 160, 90], 1.0]
+    }.freeze
+    MATERIAL_NAME = /\A\S.* - \S/.freeze
+    CUSTOM_TAG = /\A\d\d-\S/.freeze
+
+    def self.row(kind)
+      TABLE[kind.to_s] || raise("Unknown element kind #{kind.inspect}. Use one of: #{TABLE.keys.join(', ')}")
+    end
+
+    def self.tag(kind)
+      Sketchup.active_model.layers.add(row(kind)[0])
+    end
+
+    # Returns the standard material for a kind, creating it on first use.
+    # Pass name (and rgb) for another finish, e.g.
+    #   material(:dinding, 'Dinding - Bata Ekspos', [165, 80, 60])
+    def self.material(kind, name = nil, rgb = nil, opacity = nil)
+      r = row(kind)
+      name ||= r[1]
+      return nil unless name
+      raise "Material name #{name.inspect} must look like 'Elemen - Bahan'" unless name =~ MATERIAL_NAME
+      materials = Sketchup.active_model.materials
+      mat = materials[name]
+      unless mat
+        mat = materials.add(name)
+        mat.color = Sketchup::Color.new(*(rgb || r[2] || [200, 200, 200]))
+        mat.alpha = opacity || r[3]
+      end
+      mat
+    end
+
+    # Creates one building element the standard way: a named group whose raw
+    # geometry is Untagged, with the kind's tag and material on the group.
+    #   SU_MCP.element('Atap', :atap, parent_group) { |ents| ents.add_face(...) }
+    def self.element(name, kind, parent = nil, material_name = nil, rgb = nil)
+      model = Sketchup.active_model
+      target = parent ? parent.entities : model.active_entities
+      previous = model.active_layer
+      model.active_layer = model.layers[0]
+      begin
+        group = target.add_group
+        group.name = name.to_s
+        yield group.entities, group if block_given?
+        group.layer = tag(kind)
+        mat = material(kind, material_name, rgb)
+        group.material = mat if mat
+        group
+      ensure
+        model.active_layer = previous
+      end
+    end
+
+    # Returns the top-level container group for one building, creating it when
+    # it does not exist yet. Containers hold floors and elements; they carry
+    # no tag and no material themselves.
+    #   rumah = SU_MCP.container('Rumah Contoh')
+    def self.container(name)
+      model = Sketchup.active_model
+      found = model.entities.grep(Sketchup::Group).find { |g| g.name == name.to_s }
+      return found if found
+      previous = model.active_layer
+      model.active_layer = model.layers[0]
+      begin
+        group = model.entities.add_group
+        group.name = name.to_s
+        group
+      ensure
+        model.active_layer = previous
+      end
+    end
+
+    def self.audit
+      model = Sketchup.active_model
+      return "AUDIT FAILED. No model is open." unless model
+      untagged = model.layers[0]
+      standard_tags = TABLE.values.map { |r| r[0] }
+      reference_tag = TABLE['referensi'][0]
+      problems = []
+      elements = 0
+      containers = 0
+
+      loose = model.entities.count { |e| e.is_a?(Sketchup::Face) || e.is_a?(Sketchup::Edge) }
+      problems << "#{loose} loose edges/faces at the model root (put them in a named group)" if loose > 0
+
+      walk = lambda do |entities, path, inherited|
+        entities.each do |e|
+          next unless e.is_a?(Sketchup::Group) || e.is_a?(Sketchup::ComponentInstance)
+          inner = e.is_a?(Sketchup::Group) ? e.entities : e.definition.entities
+          name = e.name.to_s
+          name = e.definition.name.to_s if name.empty? && e.is_a?(Sketchup::ComponentInstance)
+          label = (path + [name.empty? ? "(unnamed ##{e.entityID})" : name]).join(' > ')
+          problems << "#{label}: has no name" if name.empty?
+          next if e.layer.name == reference_tag
+
+          raw = inner.select { |x| x.is_a?(Sketchup::Face) || x.is_a?(Sketchup::Edge) }
+          mat = e.material || inherited
+          if e.material && e.material.name !~ MATERIAL_NAME
+            problems << "#{label}: material '#{e.material.name}' is not named 'Elemen - Bahan'"
+          end
+          if raw.empty?
+            containers += 1
+          else
+            elements += 1
+            tagged = raw.count { |x| x.layer != untagged }
+            problems << "#{label}: #{tagged} edges/faces inside carry a tag (raw geometry must stay Untagged)" if tagged > 0
+            if e.layer == untagged
+              problems << "#{label}: has no tag"
+            elsif !standard_tags.include?(e.layer.name) && e.layer.name !~ CUSTOM_TAG
+              problems << "#{label}: tag '#{e.layer.name}' is not a standard tag"
+            end
+            unless mat
+              bare = raw.grep(Sketchup::Face).count { |f| f.material.nil? }
+              problems << "#{label}: no material (#{bare} faces show the default colour)" if bare > 0
+            end
+          end
+          walk.call(inner, path + [name], mat)
+        end
+      end
+      walk.call(model.entities, [], nil)
+
+      head = "#{elements} elements and #{containers} containers checked."
+      if problems.empty?
+        "AUDIT OK. #{head} All rules satisfied."
+      else
+        "AUDIT FAILED. #{head} #{problems.length} problem(s):\n- " + problems.first(40).join("\n- ")
+      end
+    end
+  end
+
+  def self.tag(kind)
+    Standards.tag(kind)
+  end
+
+  def self.material(kind, name = nil, rgb = nil, opacity = nil)
+    Standards.material(kind, name, rgb, opacity)
+  end
+
+  def self.element(name, kind, parent = nil, material_name = nil, rgb = nil, &block)
+    Standards.element(name, kind, parent, material_name, rgb, &block)
+  end
+
+  def self.container(name)
+    Standards.container(name)
+  end
+
+  def self.audit_model
+    Standards.audit
+  end
+
   class Server
     attr_reader :port
 
@@ -1858,8 +2021,10 @@ module SU_MCP
       }
     end
     
-    # Build walls (with door and window openings) and a floor slab from a plan
-    # described in METRES. The spec format is documented in docs/MODELING.md.
+    # Build walls (with door and window openings), simple door leaves and window
+    # panes, and a floor slab from a plan described in METRES. The spec format
+    # is documented in docs/MODELING.md; tags and materials follow
+    # docs/STANDARDS.md.
     #
     # Each wall is drawn as its elevation (length x height, with the openings
     # already cut out of the outline) and then extruded by its thickness, so no
@@ -1878,16 +2043,32 @@ module SU_MCP
       base_z = (spec["base_z"] || 0).to_f
       name = (spec["name"] || "Denah").to_s
       openings = spec["openings"] || []
+      infill = !(spec.key?("infill") && !spec["infill"])
       warnings = []
       wall_count = 0
-      opening_count = 0
+      door_count = 0
+      window_count = 0
+      has_slab = false
 
+      # Extrude a rectangle of the wall elevation into a thin panel.
+      panel = lambda do |ents, x0, x1, z0, z1, thickness|
+        y = (-thickness / 2.0).m
+        face = ents.add_face(
+          Geom::Point3d.new(x0.m, y, z0.m), Geom::Point3d.new(x1.m, y, z0.m),
+          Geom::Point3d.new(x1.m, y, z1.m), Geom::Point3d.new(x0.m, y, z1.m)
+        )
+        face.pushpull(face.normal.y > 0 ? thickness.m : -thickness.m)
+      end
+
+      previous_layer = model.active_layer
       model.start_operation("MCP: #{name}", true)
       begin
-        root = model.active_entities.add_group
+        # Raw geometry must be Untagged whatever tag the user has active.
+        model.active_layer = model.layers[0]
+        building = spec["building"].to_s
+        target = building.empty? ? model.active_entities : Standards.container(building).entities
+        root = target.add_group
         root.name = name
-        wall_tag = model.layers.add("Dinding")
-        slab_tag = model.layers.add("Lantai")
         known_ids = []
 
         walls.each_with_index do |w, i|
@@ -1942,38 +2123,48 @@ module SU_MCP
           end
           doors = kept
 
-          group = root.entities.add_group
-          group.name = "Dinding #{id}"
-          group.layer = wall_tag
-          ents = group.entities
-          y = (-t / 2.0).m
-          pt = lambda { |x, z| Geom::Point3d.new(x.m, y, z.m) }
-
-          outline = [pt.call(x_min, 0)]
-          doors.each do |x0, x1, top|
-            outline << pt.call(x0, 0) << pt.call(x0, top) << pt.call(x1, top) << pt.call(x1, 0)
-          end
-          outline << pt.call(x_max, 0) << pt.call(x_max, h) << pt.call(x_min, h)
-          ents.add_face(outline)
-          opening_count += doors.length
-
-          windows.each do |x0, x1, sill, top|
-            hole = ents.add_face(pt.call(x0, sill), pt.call(x1, sill), pt.call(x1, top), pt.call(x0, top))
-            if hole
-              hole.erase!
-              opening_count += 1
-            else
-              warnings << "window on #{id} at #{x0}: could not be cut"
-            end
-          end
-
-          face = ents.grep(Sketchup::Face).max_by { |f| f.area }
-          face.pushpull(face.normal.y > 0 ? t.m : -t.m)
-
           placement = Geom::Transformation.new(Geom::Point3d.new(a[0].to_f.m, a[1].to_f.m, base_z.m)) *
                       Geom::Transformation.rotation(ORIGIN, Z_AXIS, Math.atan2(dy, dx))
-          group.transform!(placement)
+
+          cut_windows = []
+          wall = Standards.element("Dinding #{id}", :dinding, root, w["material"]) do |ents|
+            y = (-t / 2.0).m
+            pt = lambda { |x, z| Geom::Point3d.new(x.m, y, z.m) }
+            outline = [pt.call(x_min, 0)]
+            doors.each do |x0, x1, top|
+              outline << pt.call(x0, 0) << pt.call(x0, top) << pt.call(x1, top) << pt.call(x1, 0)
+            end
+            outline << pt.call(x_max, 0) << pt.call(x_max, h) << pt.call(x_min, h)
+            ents.add_face(outline)
+
+            windows.each do |x0, x1, sill, top|
+              hole = ents.add_face(pt.call(x0, sill), pt.call(x1, sill), pt.call(x1, top), pt.call(x0, top))
+              if hole
+                hole.erase!
+                cut_windows << [x0, x1, sill, top]
+              else
+                warnings << "window on #{id} at #{x0}: could not be cut"
+              end
+            end
+
+            face = ents.grep(Sketchup::Face).max_by { |f| f.area }
+            face.pushpull(face.normal.y > 0 ? t.m : -t.m)
+          end
+          wall.transform!(placement)
           wall_count += 1
+
+          doors.each_with_index do |(x0, x1, top), n|
+            door_count += 1
+            next unless infill
+            leaf = Standards.element("Pintu #{id}-#{n + 1}", :pintu, root) { |ents| panel.call(ents, x0, x1, 0, top, 0.04) }
+            leaf.transform!(placement)
+          end
+          cut_windows.each_with_index do |(x0, x1, sill, top), n|
+            window_count += 1
+            next unless infill
+            pane = Standards.element("Jendela #{id}-#{n + 1}", :jendela, root) { |ents| panel.call(ents, x0, x1, sill, top, 0.01) }
+            pane.transform!(placement)
+          end
         end
 
         openings.each do |o|
@@ -1981,31 +2172,34 @@ module SU_MCP
         end
 
         slab = spec["slab"]
-        if slab && slab["outline"] && slab["outline"].length >= 3
+        has_slab = slab && slab["outline"] && slab["outline"].length >= 3 ? true : false
+        if has_slab
           thickness = (slab["thickness"] || 0.12).to_f
-          group = root.entities.add_group
-          group.name = "Lantai"
-          group.layer = slab_tag
-          points = slab["outline"].map { |p| Geom::Point3d.new(p[0].to_f.m, p[1].to_f.m, base_z.m) }
-          face = group.entities.add_face(points)
-          # A face on the ground plane is created facing down; make it face up
-          # so the slab's top sits at base_z and its body goes below it.
-          face.reverse! if face.normal.z < 0
-          face.pushpull(-thickness.m)
+          Standards.element("Lantai", :lantai, root, slab["material"]) do |ents|
+            points = slab["outline"].map { |p| Geom::Point3d.new(p[0].to_f.m, p[1].to_f.m, base_z.m) }
+            face = ents.add_face(points)
+            # A face on the ground plane is created facing down; make it face up
+            # so the slab's top sits at base_z and its body goes below it.
+            face.reverse! if face.normal.z < 0
+            face.pushpull(-thickness.m)
+          end
         end
 
         model.commit_operation
       rescue StandardError
         model.abort_operation
         raise
+      ensure
+        model.active_layer = previous_layer
       end
 
       model.active_view.zoom_extents
       bb = root.bounds
       size = [bb.width, bb.height, bb.depth].map { |v| v.to_m.round(2) }
-      summary = "Built '#{name}': #{wall_count} walls, #{opening_count} openings" \
-                "#{spec["slab"] ? ", 1 slab" : ""}. Size #{size[0]} x #{size[1]} x #{size[2]} m (x, y, z). " \
-                "Group entityID #{root.entityID}."
+      summary = "Built '#{name}': #{wall_count} walls, #{door_count} doors, #{window_count} windows" \
+                "#{has_slab ? ", 1 slab" : ""}. Size #{size[0]} x #{size[1]} x #{size[2]} m (x, y, z). " \
+                "Group entityID #{root.entityID}. Tags and materials follow the standard; " \
+                "run SU_MCP.audit_model through eval_ruby after adding anything else."
       summary += " Warnings: " + warnings.join("; ") unless warnings.empty?
       { success: true, id: root.entityID, result: summary }
     end

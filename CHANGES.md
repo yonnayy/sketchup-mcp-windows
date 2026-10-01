@@ -14,7 +14,9 @@ Dasar: [mhyrr/sketchup-mcp](https://github.com/mhyrr/sketchup-mcp) pada commit `
 
 ## Fitur baru
 
-- **`build_floor_plan`**: denah dalam meter menjadi dinding solid dengan bukaan pintu/jendela dan pelat lantai, dalam satu langkah undo. Tidak butuh Solid Tools, jadi jalan di semua edisi SketchUp.
+- **`build_floor_plan`**: denah dalam meter menjadi dinding solid dengan bukaan, daun pintu, kaca jendela, dan pelat lantai, dalam satu langkah undo. Tidak butuh Solid Tools, jadi jalan di semua edisi SketchUp.
+- **Aturan dasar model** ([docs/STANDARDS.md](docs/STANDARDS.md)): tag baku bernomor, material bernama `Elemen - Bahan` yang dipasang di grup, geometri mentah Untagged, susunan bangunan > lantai > elemen. `build_floor_plan` mengikutinya dengan sendirinya; untuk `eval_ruby` ada helper `SU_MCP.container`, `SU_MCP.element`, `SU_MCP.tag`, `SU_MCP.material`.
+- **`SU_MCP.audit_model`**: memeriksa seluruh model terhadap aturan itu dan menyebut tiap pelanggaran.
 - **Server menyala otomatis** saat SketchUp dibuka (bisa dimatikan di **Extensions > MCP Server > Auto-start on Launch**), plus menu **Status**.
 - **`install.ps1` dan `check.ps1`** untuk Windows: pasang dan periksa dengan satu perintah.
 - Deskripsi tool ditulis ulang supaya model AI tahu soal satuan inci, arah `pushpull` di z = 0, dan geseran relatif.
@@ -30,6 +32,6 @@ Dasar: [mhyrr/sketchup-mcp](https://github.com/mhyrr/sketchup-mcp) pada commit `
 ## Pengujian
 
 - `tests/mock_roundtrip.py`: tanpa SketchUp. Sepuluh panggilan berturut-turut, setiap jawaban harus cocok dengan permintaannya.
-- `tests/live_floor_plan.py`: dengan SketchUp terbuka. Membangun rumah dua ruang (5 dinding, 6 bukaan, 1 pelat), memeriksa bahwa semua grup solid, lalu mengekspor PNG.
+- `tests/live_floor_plan.py`: dengan SketchUp terbuka. Membangun rumah dua ruang (5 dinding, 2 pintu, 4 jendela, 1 pelat) plus atap, memeriksa bahwa semua elemen solid dan audit lolos, memastikan audit menangkap pelanggaran yang sengaja dibuat, lalu mengekspor PNG.
 
 Diuji di Windows 10, SketchUp 2025 (25.0.660), Python 3.10 dan 3.12, `mcp` 1.30.0.

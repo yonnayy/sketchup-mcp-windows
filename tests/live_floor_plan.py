@@ -1,8 +1,10 @@
 """End-to-end test against a REAL SketchUp (extension running, a model open).
 
-Builds a small two-room house with build_floor_plan, checks the geometry with
-eval_ruby and writes a PNG screenshot. Everything lands in one group named
-"MCP TEST" - delete it (or press Ctrl+Z) afterwards.
+Builds a small two-room house with build_floor_plan, adds a roof through
+eval_ruby with the SU_MCP helpers, then checks that every element is a closed
+solid, that the model passes the house-rules audit (docs/STANDARDS.md), and
+that the audit really reports deliberate violations. Writes a PNG screenshot
+and finally removes everything it created (the "MCP TEST" container).
 
 Run:  uv run --project . python tests/live_floor_plan.py
 """
@@ -14,7 +16,8 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 SPEC = {
-    "name": "MCP TEST",
+    "building": "MCP TEST",
+    "name": "Lantai 1",
     "wall_height": 3.0,
     "wall_thickness": 0.15,
     "walls": [
@@ -35,15 +38,52 @@ SPEC = {
     "slab": {"outline": [[0, 0], [7, 0], [7, 5], [0, 5]], "thickness": 0.12},
 }
 
-INSPECT = r'''
-root = Sketchup.active_model.entities.grep(Sketchup::Group).select { |g| g.name == "MCP TEST" }.last
-rows = root.entities.grep(Sketchup::Group).map do |g|
-  b = g.bounds
-  "%s solid=%s x=%.2f..%.2f y=%.2f..%.2f z=%.2f..%.2f faces=%d" % [
-    g.name, g.manifold?, b.min.x.to_m, b.max.x.to_m, b.min.y.to_m, b.max.y.to_m,
-    b.min.z.to_m, b.max.z.to_m, g.entities.grep(Sketchup::Face).length]
+ROOF = r'''
+model = Sketchup.active_model
+model.start_operation('MCP TEST: atap', true)
+rumah = SU_MCP.container('MCP TEST')
+SU_MCP.element('Atap Datar', :atap, rumah) do |ents|
+  face = ents.add_face([-0.3.m, -0.3.m, 3.m], [7.3.m, -0.3.m, 3.m], [7.3.m, 5.3.m, 3.m], [-0.3.m, 5.3.m, 3.m])
+  face.reverse! if face.normal.z < 0
+  face.pushpull(0.12.m)
 end
+model.commit_operation
+'ok'
+'''
+
+INSPECT = r'''
+rumah = SU_MCP.container('MCP TEST')
+rows = []
+walk = lambda do |ents|
+  ents.grep(Sketchup::Group).each do |g|
+    if g.entities.grep(Sketchup::Face).empty?
+      walk.call(g.entities)
+    else
+      rows << "%s solid=%s tag=%s material=%s" % [g.name, g.manifold?, g.layer.name, g.material ? g.material.name : 'NONE']
+    end
+  end
+end
+walk.call(rumah.entities)
 rows.join("\n")
+'''
+
+VIOLATIONS = r'''
+model = Sketchup.active_model
+model.start_operation('MCP TEST: pelanggaran', true)
+g = model.entities.add_group
+g.entities.add_face([20.m, 0, 0], [21.m, 0, 0], [21.m, 1.m, 0], [20.m, 1.m, 0])
+report = SU_MCP.audit_model
+model.abort_operation
+report
+'''
+
+CLEANUP = r'''
+model = Sketchup.active_model
+model.start_operation('MCP TEST: bersihkan', true)
+found = model.entities.grep(Sketchup::Group).select { |g| g.name == 'MCP TEST' }
+found.each(&:erase!)
+model.commit_operation
+"removed #{found.length}"
 '''
 
 
@@ -51,21 +91,45 @@ def text(result) -> str:
     return result.content[0].text
 
 
+async def ruby(session, code: str) -> str:
+    reply = json.loads(text(await session.call_tool("eval_ruby", {"code": code})))
+    assert reply.get("success"), reply
+    return reply["result"]
+
+
 async def run() -> int:
     params = StdioServerParameters(command=sys.executable, args=["-m", "sketchup_mcp"])
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
-            print("version :", text(await session.call_tool("eval_ruby", {"code": "Sketchup.version"})))
-            built = text(await session.call_tool("build_floor_plan", {"spec": SPEC}))
-            print("build   :", built)
-            assert "5 walls, 6 openings" in built, built
-            report = json.loads(text(await session.call_tool("eval_ruby", {"code": INSPECT})))["result"]
-            print(report)
-            assert "solid=false" not in report, "a wall or the slab is not a closed solid"
-            await session.call_tool("eval_ruby", {"code": "Sketchup.send_action('viewIso:'); Sketchup.active_model.active_view.zoom_extents; 'ok'"})
-            shot = text(await session.call_tool("export_scene", {"format": "png"}))
-            print("png     :", shot)
+            print("version :", await ruby(session, "Sketchup.version"))
+            try:
+                built = text(await session.call_tool("build_floor_plan", {"spec": SPEC}))
+                print("build   :", built)
+                assert "5 walls, 2 doors, 4 windows, 1 slab" in built, built
+                assert "Warnings" not in built, built
+
+                await ruby(session, ROOF)
+                report = await ruby(session, INSPECT)
+                print(report)
+                assert report.count("\n") + 1 == 13, "expected 13 elements (5 walls, 2 doors, 4 windows, slab, roof)"
+                assert "solid=false" not in report, "an element is not a closed solid"
+                assert "tag=Layer0" not in report and "material=NONE" not in report, "an element lacks tag or material"
+
+                audit = await ruby(session, "SU_MCP.audit_model")
+                print("audit   :", audit.splitlines()[0])
+                assert "MCP TEST" not in audit, audit
+
+                bad = await ruby(session, VIOLATIONS)
+                assert bad.startswith("AUDIT FAILED") and "has no tag" in bad and "has no name" in bad, bad
+                print("audit catches violations: yes")
+
+                await ruby(session, "Sketchup.send_action('viewIso:'); 'ok'")
+                await ruby(session, "Sketchup.active_model.active_view.zoom_extents; 'ok'")
+                shot = json.loads(text(await session.call_tool("export_scene", {"format": "png"})))
+                print("png     :", shot["content"][0]["text"])
+            finally:
+                print("cleanup :", await ruby(session, CLEANUP))
     print("OK")
     return 0
 

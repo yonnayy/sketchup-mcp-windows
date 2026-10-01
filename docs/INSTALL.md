@@ -81,14 +81,14 @@ Di percakapan **baru** di Claude Desktop, tool `sketchup` harus muncul di daftar
 
 1. **Koneksi.** Panggil `eval_ruby` dengan kode `Sketchup.version`. Hasilnya nomor versi SketchUp.
 2. **Berurutan.** Panggil `get_selection`, lalu `eval_ruby` dengan `Sketchup.active_model.entities.length`, lalu `get_selection` lagi. Ketiganya harus menjawab sesuai pertanyaannya (versi asli gagal di panggilan kedua).
-3. **Denah ke 3D.** Jalankan contoh di [MODELING.md](MODELING.md#uji-cepat). Hasilnya `Built 'Uji MCP': 4 walls, 2 openings, 1 slab`.
-4. **Lihat hasil.** Panggil `export_scene` dengan `format: "png"`, lalu tunjukkan atau baca gambarnya.
+3. **Model contoh pertama.** Baca [STANDARDS.md](STANDARDS.md), lalu kerjakan tiga langkah di [MODELING.md](MODELING.md#model-contoh-pertama) pada model kosong: denah (`Built 'Lantai 1': 8 walls, 4 doors, 7 windows, 1 slab`), atap, lalu gambar.
+4. **Audit.** `SU_MCP.audit_model` lewat `eval_ruby` harus menjawab `AUDIT OK. 23 elements and 2 containers checked. All rules satisfied.`
 
-Kalau keempatnya berhasil, pemasangan selesai. Hapus model uji dengan Ctrl+Z di SketchUp, atau hapus grup `Uji MCP`.
+Kalau keempatnya berhasil, pemasangan selesai. Tunjukkan gambarnya ke pengguna. Model contoh boleh dihapus (hapus grup `Rumah Contoh`) atau disimpan sebagai acuan.
 
 ## Pemasangan manual (kalau installer tidak bisa dipakai)
 
-1. **Extension:** di SketchUp, **Extensions > Extension Manager > Install Extension**, pilih `release/su_mcp_v1.6.1.rbz` dari repo ini. Buka ulang SketchUp.
+1. **Extension:** di SketchUp, **Extensions > Extension Manager > Install Extension**, pilih `release/su_mcp.rbz` dari repo ini. Buka ulang SketchUp.
 2. **uv:** `powershell -ExecutionPolicy Bypass -c "irm https://astral.sh/uv/install.ps1 | iex"`
 3. **Server:** `uv tool install --force --reinstall-package sketchup-mcp --python 3.12 "sketchup-mcp @ https://github.com/yonnayy/sketchup-mcp-windows/archive/refs/heads/main.zip"`
 4. **Config:** di Claude Desktop, **Settings > Developer > Edit Config**, tambahkan (ganti `NAMA` dengan nama pengguna Windows):

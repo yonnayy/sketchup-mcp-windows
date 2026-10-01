@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger("SketchupMCPServer")
 
 # Define version directly to avoid pkg_resources dependency
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 logger.info(f"SketchupMCP Server version {__version__} starting up")
 
 @dataclass
@@ -266,7 +266,12 @@ mcp = FastMCP(
         "SketchUp's internal unit is the INCH: always write lengths as 3.m, 150.mm, 15.cm. "
         "Wrap edits in model.start_operation(name, true) / model.commit_operation so the user can undo in one step. "
         "A face drawn at z=0 gets a downward normal: call face.reverse! if face.normal.z < 0 before pushpull. "
-        "Put each building element in its own group. "
+        "House rules (docs/STANDARDS.md): one named group per building element, raw geometry untagged, "
+        "a standard tag and an 'Elemen - Bahan' material on the group. build_floor_plan follows them; "
+        "in eval_ruby create elements with SU_MCP.element(name, kind, parent) { |ents| ... } where kind is "
+        "dinding, lantai, pintu, jendela, atap, struktur, tangga, furnitur, tapak or referensi, "
+        "get the building container with SU_MCP.container(name), and finish with SU_MCP.audit_model "
+        "(it must answer AUDIT OK). "
         "Check your work with export_scene(format='png') and look at the image."
     ),
     lifespan=server_lifespan
@@ -449,11 +454,13 @@ def build_floor_plan(
     ctx: Context,
     spec: Dict[str, Any]
 ) -> str:
-    """Turn a floor plan into 3D walls with door/window openings and a floor slab.
+    """Turn a floor plan into 3D walls, doors, windows and a floor slab, already
+    tagged and given materials according to the house rules.
 
     All numbers are METRES. Coordinates are [x, y] on the ground plane.
     spec = {
-      "name": "Lantai 1",            # name of the resulting group
+      "building": "Rumah A",         # container group for the whole building
+      "name": "Lantai 1",            # name of this floor's group
       "wall_height": 3.0,            # default height
       "wall_thickness": 0.15,        # default thickness
       "base_z": 0,                   # floor level (use 3.2 etc. for upper floors)
@@ -468,6 +475,8 @@ def build_floor_plan(
       "slab": {"outline": [[0, 0], [6, 0], [6, 4], [0, 4]], "thickness": 0.12}
     }
     An opening with no "sill" (or sill 0) is a door; with a sill it is a window.
+    Doors get a 4 cm leaf and windows a 1 cm glass pane ("infill": false for
+    plain holes). Walls and slab accept "material": "Dinding - Bata Ekspos".
     Wall ends are extended by half the thickness so corners close; pass
     "extend": false on a wall to switch that off.
     The whole plan is one undo step. The reply reports the built size and any
@@ -502,7 +511,9 @@ def eval_ruby(
       model.start_operation('name', true) ... model.commit_operation.
     - A face on the ground plane (z=0) has its normal pointing down, so
       pushpull(+h) would go underground: face.reverse! if face.normal.z < 0.
-    - Build each element inside its own group (model.active_entities.add_group).
+    - Create each element with SU_MCP.element(name, kind, parent) { |ents| ... }
+      so it gets the standard tag and material; parent = SU_MCP.container('Rumah A').
+    - End with SU_MCP.audit_model; the work is done only when it says AUDIT OK.
     - Make the last expression a short summary string (counts, bounds) so you
       can verify the result. Calls time out after about 15 seconds, so split
       very large jobs into several calls.
