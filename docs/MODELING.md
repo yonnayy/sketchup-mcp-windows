@@ -19,7 +19,7 @@ Panduan untuk Claude saat diminta membuat model SketchUp dari denah.
 11. **Lihat hasil 3D-nya** dengan `export_scene` format `png` di scene `3D`, lalu perbaiki kalau ada yang salah (Ctrl+Z di SketchUp membatalkan satu langkah sekaligus).
 12. **Ekspor gambar untuk pengguna paling akhir** dengan `export_views`, setelah perubahan terakhir, lalu lihat setiap gambarnya sebelum dikirim.
 
-Untuk proyek sungguhan (lebih dari satu lantai, tangga, perabot, tampak dan potongan) ikuti urutan lengkap di [WORKFLOW.md](WORKFLOW.md).
+Untuk proyek sungguhan (lebih dari satu lantai, tangga, perabot, tampak dan potongan) ikuti urutan lengkap di [WORKFLOW.md](WORKFLOW.md). Contoh lengkapnya, dari gambar kerja sungguhan: [Caroline's Farmhouse](../examples/caroline/README.md).
 
 Nilai umum kalau tidak disebutkan: tinggi dinding 3,0 m; tebal dinding bata 0,15 m, sekat 0,10 m; pintu 0,9 x 2,1 m; jendela lebar 1,2 m, ambang 0,9 m, tinggi 1,2 m; pelat lantai 0,12 m.
 

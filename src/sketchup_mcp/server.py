@@ -924,6 +924,69 @@ def place_furniture(ctx: Context, spec: Dict[str, Any]) -> str:
     return _detail(ctx, "place_furniture", spec)
 
 @mcp.tool()
+def add_slab(ctx: Context, spec: Dict[str, Any]) -> str:
+    """Build a flat plate over any plan outline: an upper floor with a stairwell
+    left open, a porch deck, a raised platform, a beam, a foundation skirt, a
+    lawn, a path. Metres.
+
+    spec = {
+      "building": "Rumah A",
+      "floor": "Lantai 2",            # container inside the building ("group" also works)
+      "name": "Lantai",
+      "outline": [[0, 0], [8, 0], [8, 6], [0, 6]],   # or "from": [x, y], "to": [x, y] for a rectangle
+      "top_z": 3.0, "thickness": 0.12,                # the plate runs from top_z - thickness to top_z
+      "kind": "lantai",               # lantai | struktur | tapak | atap: sets the tag
+      "material": "Lantai - Kayu", "color": [176, 132, 88]
+    }
+    With "kind": "tapak" and no "building" it goes into the site container
+    "Tapak". An upper floor that has stairs below is made with this tool: give
+    the outline of the floor without the stair footprint that build_stairs
+    reported. A slab of the same name in the same container is replaced.
+    """
+    return _detail(ctx, "add_slab", spec)
+
+@mcp.tool()
+def add_plants(ctx: Context, spec: Dict[str, Any]) -> str:
+    """Put simple shrubs and trees on the site (container "Tapak"). Metres.
+
+    spec = {
+      "base_z": 0,                    # ground level
+      "items": [
+        {"type": "shrub", "at": [2.0, -2.5], "size": 1.3},               # size = diameter
+        {"type": "tree",  "at": [-8.0, 6.5], "size": 4.5, "height": 7.5}
+      ]
+    }
+    Plants are named Semak 1.., Pohon 1.. ("name" overrides) and a plant of
+    the same name is replaced. They are low-polygon massing for pictures, and
+    they are hidden in plan views and can be hidden in elevations.
+    """
+    return _detail(ctx, "add_plants", spec)
+
+@mcp.tool()
+def add_scene(ctx: Context, spec: Dict[str, Any]) -> str:
+    """Save a camera view as a scene, for export_views. Metres.
+
+    spec = {
+      "name": "Depan",
+      "eye": [-8.4, -11.9, 5.3], "target": [3.3, 1.5, 2.5],
+      "fov": 38,                      # perspective (default)
+      "height": 10.7,                 # instead: parallel projection showing this many metres (elevations)
+      "cut_z": 2.4,                   # horizontal cut: everything above is removed (cut-away views)
+      "hide": ["tapak"],              # kinds whose tags are hidden in this scene
+      "shadows": true                 # default: on for perspective, off for parallel
+    }
+    Typical set: "Depan" and "Belakang" (perspective from about 45 degrees),
+    "Potongan Lantai N" (perspective from above with cut_z a little under that
+    floor's ceiling), "Tampak Selatan" etc. (parallel, eye straight in front of
+    the facade at mid height, "hide": ["tapak"] so trees do not cover it).
+    Plan drawings come from add_plan_view instead. Dimension annotations of
+    plan views are hidden in these scenes. Calling it again with the same name
+    updates the scene. Perspective scenes also give the model a sky and a
+    ground colour.
+    """
+    return _detail(ctx, "add_scene", spec)
+
+@mcp.tool()
 def eval_ruby(
     ctx: Context,
     code: str

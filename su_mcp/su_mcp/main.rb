@@ -998,7 +998,8 @@ module SU_MCP
       raise 'Roof outline has no area' if hi[0] - lo[0] < 0.05 || hi[1] - lo[1] < 0.05
       p = type == 'flat' ? 0.0 : pitch(spec)
       oh = (spec['overhang'] || 0.3).to_f
-      rake = (spec['rake'] || oh).to_f
+      rake = spec['rake'] || oh
+      rake0, rake1 = (rake.is_a?(Array) ? rake : [rake, rake]).map(&:to_f)
       t = (spec['thickness'] || 0.15).to_f
       tv = t * Math.sqrt(1 + p * p)
       spacing = (spec['seams'] || 0).to_f.m
@@ -1007,11 +1008,12 @@ module SU_MCP
       tops = []
       info = nil
       walls = 0
+      fills = 0
       lines = 0
 
       operation(name) do
         parent = home(spec, 'Atap')
-        parent.entities.grep(Sketchup::Group).select { |g| g.name == name || g.name =~ /\A#{Regexp.escape(name)} Ampig \d\z/ }.each(&:erase!)
+        parent.entities.grep(Sketchup::Group).select { |g| g.name == name || g.name =~ /\A#{Regexp.escape(name)} (Ampig|Dinding Atas) \d+\z/ }.each(&:erase!)
         roof = Standards.element(name, :atap, parent, spec['material'], spec['color']) do |ents|
           case type
           when 'gable'
@@ -1024,13 +1026,14 @@ module SU_MCP
             ze = base - oh * p
             zr = base + half * p
             profile = [[mid - w, ze], [mid, zr], [mid + w, ze], [mid + w, ze + tv], [mid, zr + tv], [mid - w, ze + tv]]
-            a0 = lo[a] - rake
-            a1 = hi[a] + rake
+            a0 = lo[a] - rake0
+            a1 = hi[a] + rake1
             loft(ents, profile.map { |cv, z| q.call(a0, cv, z) }, profile.map { |cv, z| q.call(a1, cv, z) })
             up = a == 0 ? [0, 1] : [1, 0]
             tops << [[q.call(a0, mid + w, ze + tv), q.call(a1, mid + w, ze + tv), q.call(a1, mid, zr + tv), q.call(a0, mid, zr + tv)], up]
             tops << [[q.call(a0, mid - w, ze + tv), q.call(a1, mid - w, ze + tv), q.call(a1, mid, zr + tv), q.call(a0, mid, zr + tv)], up.map { |v| -v }]
-            info = { ridge: zr + tv, eave: ze, size: [a1 - a0, 2 * w], axis: a, half: half, mid: mid, zr: zr }
+            info = { ridge: zr + tv, eave: ze, size: [a1 - a0, 2 * w], axis: a, half: half, mid: mid, zr: zr,
+                     under: lambda { |x, y| base + (half - ((a == 0 ? y : x) - mid).abs) * p } }
           when 'hip'
             a = (hi[0] - lo[0]) >= (hi[1] - lo[1]) ? 0 : 1
             c = 1 - a
@@ -1073,14 +1076,15 @@ module SU_MCP
             ohh = ms || me ? 0.0 : (spec['overhang_high'] || 0).to_f
             c_low = cl - s * oh
             c_high = ch + s * ohh
-            plan = [[lo[a] - (ms ? oh : rake), c_low], [hi[a] + (me ? oh : rake), c_low],
-                    [me ? hi[a] - depth : hi[a] + rake, c_high], [ms ? lo[a] + depth : lo[a] - rake, c_high]]
+            plan = [[lo[a] - (ms ? oh : rake0), c_low], [hi[a] + (me ? oh : rake1), c_low],
+                    [me ? hi[a] - depth : hi[a] + rake1, c_high], [ms ? lo[a] + depth : lo[a] - rake0, c_high]]
             under = lambda { |cv| zh - s * (ch - cv) * p }
             bottom = plan.map { |av, cv| q.call(av, cv, under.call(cv)) }
             top = plan.map { |av, cv| q.call(av, cv, under.call(cv) + tv) }
             loft(ents, bottom, top)
             tops << [top, a == 0 ? [0, -s] : [-s, 0]]
-            info = { ridge: under.call(c_high) + tv, eave: under.call(c_low), size: [plan[1][0] - plan[0][0], (c_high - c_low).abs] }
+            info = { ridge: under.call(c_high) + tv, eave: under.call(c_low), size: [plan[1][0] - plan[0][0], (c_high - c_low).abs],
+                     under: lambda { |x, y| under.call(a == 0 ? y : x) } }
           else
             box(ents, lo[0] - oh, hi[0] + oh, lo[1] - oh, hi[1] + oh, base, base + t)
             info = { ridge: base + t, eave: base, size: [hi[0] - lo[0] + 2 * oh, hi[1] - lo[1] + 2 * oh] }
@@ -1099,7 +1103,9 @@ module SU_MCP
           a = info[:axis]
           c = 1 - a
           q = lambda { |av, cv, z| a == 0 ? pt(av, cv, z) : pt(cv, av, z) }
+          which = (gw['ends'] || 'both').to_s
           [[lo[a], lo[a] + tw], [hi[a], hi[a] - tw]].each_with_index do |(out_a, in_a), i|
+            next if (which == 'start' && i == 1) || (which == 'end' && i == 0)
             Standards.element("#{name} Ampig #{i + 1}", :dinding, parent, gw['material'], gw['color']) do |ents|
               tri = [[lo[c], base], [hi[c], base], [info[:mid], info[:zr]]]
               loft(ents, tri.map { |cv, z| q.call(out_a, cv, z) }, tri.map { |cv, z| q.call(in_a, cv, z) })
@@ -1107,11 +1113,45 @@ module SU_MCP
             walls += 1
           end
         end
-        summary = "Roof '#{name}' (#{type}) built in '#{parent.name}': top of ridge at +#{format('%.3f', info[:ridge])} m, " \
-                  "underside of eave at +#{format('%.3f', info[:eave])} m, #{format('%.2f', info[:size][0])} x #{format('%.2f', info[:size][1])} m on plan"
+        # Walls that fill the gap between a lower wall and the sloping underside of the roof.
+        (spec['infill'] || []).each_with_index do |seg, i|
+          under = info[:under] || raise('"infill" works under gable and shed roofs only')
+          sx, sy = seg['from'].map(&:to_f)
+          ex, ey = seg['to'].map(&:to_f)
+          tw = (seg['thickness'] || 0.1).to_f
+          zb = (seg['base_z'] || base).to_f
+          len = Math.hypot(ex - sx, ey - sy)
+          next if len < 0.01
+          dx = (ex - sx) / len
+          dy = (ey - sy) / len
+          nx = -dy * tw / 2.0
+          ny = dx * tw / 2.0
+          stations = [0.0, len]
+          if info[:axis]
+            c0, c1 = info[:axis] == 0 ? [sy, ey] : [sx, ex]
+            stations << len * (info[:mid] - c0) / (c1 - c0) if (c0 - info[:mid]) * (c1 - info[:mid]) < 0
+          end
+          stations.sort!
+          tops = stations.map do |st|
+            x = sx + dx * st
+            y = sy + dy * st
+            [[under.call(x + nx, y + ny), under.call(x - nx, y - ny)].min, zb].max
+          end
+          next if tops.max - zb < 0.01
+          side = lambda do |k|
+            low = [stations.first, stations.last].map { |st| pt(sx + dx * st + nx * k, sy + dy * st + ny * k, zb) }
+            high = stations.each_with_index.map { |st, j| pt(sx + dx * st + nx * k, sy + dy * st + ny * k, tops[j]) }.reverse
+            low + high
+          end
+          Standards.element("#{name} Dinding Atas #{i + 1}", :dinding, parent, seg['material'], seg['color']) { |ents| loft(ents, side.call(1), side.call(-1)) }
+          fills += 1
+        end
+        summary = "Roof '#{name}' (#{type}) built in '#{parent.name}': top of ridge at #{format('%+.3f', info[:ridge])} m, " \
+                  "underside of eave at #{format('%+.3f', info[:eave])} m, #{format('%.2f', info[:size][0])} x #{format('%.2f', info[:size][1])} m on plan"
         summary += ", pitch #{format('%.3f', p)} (#{format('%.1f', Math.atan(p).radians)} deg)" unless type == 'flat'
         summary += ", #{lines} seam lines" if lines > 0
         summary += ", #{walls} gable walls" if walls > 0
+        summary += ", #{fills} infill walls" if fills > 0
         summary + ". Group entityID #{roof.entityID}. Look at it with export_scene, then SU_MCP.audit_model."
       end
     end
@@ -1510,7 +1550,7 @@ module SU_MCP
           end
           made += 1
         end
-        "#{made} posts '#{label} 1..#{made}' (#{style}, #{format('%.2f', size)} m, #{format('%.2f', height)} m high from +#{format('%.2f', base)} m) " \
+        "#{made} posts '#{label} 1..#{made}' (#{style}, #{format('%.2f', size)} m, #{format('%.2f', height)} m high from #{format('%+.2f', base)} m) " \
           "built in '#{parent.name}'. Look at them with export_scene."
       end
     end
@@ -1611,7 +1651,7 @@ module SU_MCP
         end
 
         summary = "Stairs '#{label}': #{risers} risers of #{format('%.4f', r)} m, #{level} treads in #{parts} parts, width #{format('%.2f', width)} m. " \
-                  "The last riser lands at [#{format('%.3f', pos[0])}, #{format('%.3f', pos[1])}] on +#{format('%.3f', base + rise)} m, " \
+                  "The last riser lands at [#{format('%.3f', pos[0])}, #{format('%.3f', pos[1])}] on #{format('%+.3f', base + rise)} m, " \
                   "walking towards [#{dir[0].round}, #{dir[1].round}]. " \
                   "Footprint x #{format('%.3f', xs.min)}..#{format('%.3f', xs.max)}, y #{format('%.3f', ys.min)}..#{format('%.3f', ys.max)} m: " \
                   "the floor above must be open over it (leave it out of the slab outline)."
@@ -1710,6 +1750,160 @@ module SU_MCP
         "#{placed.length} pieces placed in '#{parent.name}': #{placed.join(', ')}.\n" + Placement.report('building' => spec['building'])
       end
     end
+
+    # ------------------------------------------------------------------ slab
+
+    # A flat plate over any plan outline: deck, platform, beam, foundation
+    # skirt, lawn, path.
+    def self.slab(spec)
+      outline = spec['outline']
+      if outline.nil? && spec['from'] && spec['to']
+        (x0, y0), (x1, y1) = spec['from'], spec['to']
+        outline = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+      end
+      raise 'add_slab needs "outline": [[x, y], ...] or "from" and "to", in metres' unless outline && outline.length >= 3
+      kind = (spec['kind'] || 'lantai').to_s
+      Standards.row(kind)
+      name = (spec['name'] || 'Pelat').to_s
+      top = (spec['top_z'] || 0).to_f
+      thickness = (spec['thickness'] || 0.12).to_f
+      raise 'thickness must be positive' unless thickness > 0
+      area = 0.0
+      outline.each_with_index do |(x, y), i|
+        nx, ny = outline[(i + 1) % outline.length]
+        area += x.to_f * ny.to_f - nx.to_f * y.to_f
+      end
+
+      operation(name) do
+        parent = kind == 'tapak' && !spec['building'] ? Standards.container((spec['site'] || 'Tapak').to_s) : home(spec, spec['floor'])
+        parent.entities.grep(Sketchup::Group).select { |g| g.name == name }.each(&:erase!)
+        group = Standards.element(name, kind, parent, spec['material'], spec['color']) { |ents| prism(ents, outline, top - thickness, top) }
+        "Slab '#{name}' (#{kind}) built in '#{parent.name}': #{format('%.2f', area.abs / 2.0)} m2, from #{format('%+.3f', top - thickness)} to " \
+          "#{format('%+.3f', top)} m. Group entityID #{group.entityID}."
+      end
+    end
+
+    # ---------------------------------------------------------------- plants
+
+    def self.round_ring(cx, cy, z, r, n)
+      (0...n).map { |i| a = 2 * Math::PI * i / n; pt(cx + r * Math.cos(a), cy + r * Math.sin(a), z) }
+    end
+
+    def self.plants(spec)
+      items = spec['items'] || raise('add_plants needs "items": [{"type": "shrub", "at": [x, y]}, ...]')
+      base = (spec['base_z'] || 0).to_f
+      counts = Hash.new(0)
+      made = []
+
+      operation('tanaman') do
+        site = Standards.container((spec['site'] || 'Tapak').to_s)
+        items.each do |item|
+          type = item['type'].to_s
+          x, y = item['at'] || raise("#{type}: needs \"at\": [x, y] in metres")
+          z = (item['z'] || base).to_f
+          counts[type] += 1
+          case type
+          when 'shrub', 'semak'
+            d = (item['size'] || 1.2).to_f
+            h = (item['height'] || d * 0.7).to_f
+            name = (item['name'] || "Semak #{counts[type]}").to_s
+            site.entities.grep(Sketchup::Group).select { |g| g.name == name }.each(&:erase!)
+            Standards.element(name, :tapak, site, 'Tapak - Semak', [62, 98, 54]) do |ents|
+              skin(ents, [[0, 0.38], [0.35, 0.5], [0.75, 0.36], [1.0, 0.12]].map { |f, r| round_ring(x, y, z + f * h, r * d, 8) })
+            end
+          when 'tree', 'pohon'
+            d = (item['size'] || 4.5).to_f
+            h = (item['height'] || 7.0).to_f
+            name = (item['name'] || "Pohon #{counts[type]}").to_s
+            site.entities.grep(Sketchup::Group).select { |g| g.name == name }.each(&:erase!)
+            tree = child(site, name)
+            trunk = h * 0.35
+            Standards.element('Batang', :tapak, tree, 'Tapak - Batang Pohon', [110, 85, 60]) do |ents|
+              skin(ents, [round_ring(x, y, z, d * 0.045, 8), round_ring(x, y, z + trunk + 0.3, d * 0.035, 8)])
+            end
+            Standards.element('Tajuk', :tapak, tree, 'Tapak - Daun', [70, 120, 60]) do |ents|
+              crown = h - trunk
+              skin(ents, [[0, 0.3], [0.3, 0.5], [0.65, 0.42], [1.0, 0.08]].map { |f, r| round_ring(x, y, z + trunk + f * crown, r * d, 10) })
+            end
+          else
+            raise "Unknown plant type #{item['type'].inspect}. Use shrub or tree"
+          end
+          made << name
+        end
+        "#{made.length} plants placed in '#{site.name}': #{made.join(', ')}."
+      end
+    end
+
+    # ----------------------------------------------------------------- scene
+
+    def self.scene(spec)
+      name = (spec['name'] || raise('add_scene needs "name"')).to_s
+      eye = spec['eye'] || raise('add_scene needs "eye": [x, y, z] in metres')
+      target = spec['target'] || raise('add_scene needs "target": [x, y, z] in metres')
+      parallel = spec['height'] ? true : false
+      cut = spec['cut_z']
+      hide = (spec['hide'] || []).map { |k| Standards.row(k)[0] }
+      shadows = spec.key?('shadows') ? (spec['shadows'] ? true : false) : !parallel
+      model = Sketchup.active_model
+      raise "No model is open in SketchUp" unless model
+      annotation = Standards::TABLE['anotasi'][0]
+      raise "'#{name}' is a plan view made by add_plan_view; pick another name" if model.layers["#{annotation} #{name}"]
+
+      model.start_operation("MCP: scene #{name}", true)
+      begin
+        model.options['PageOptions']['ShowTransition'] = false
+        model.entities.grep(Sketchup::SectionPlane).select { |s| s.name == name }.each(&:erase!)
+        if cut
+          plane = model.entities.add_section_plane([pt(0, 0, cut), Geom::Vector3d.new(0, 0, -1)])
+          plane.name = name
+          plane.activate
+        else
+          model.entities.active_section_plane = nil
+        end
+        model.rendering_options['DisplaySectionPlanes'] = false
+        up = (eye[0].to_f - target[0].to_f).abs < 0.001 && (eye[1].to_f - target[1].to_f).abs < 0.001 ? Y_AXIS : Z_AXIS
+        camera = Sketchup::Camera.new(pt(*eye), pt(*target), up, !parallel, (spec['fov'] || 38).to_f)
+        camera.height = spec['height'].to_f.m if parallel
+        model.active_view.camera = camera
+        model.shadow_info['DisplayShadows'] = shadows
+        # Sky and ground belong to the style that all scenes share, so they are
+        # set for the model as a whole; export_views drops them for drawings.
+        unless parallel || (spec.key?('backdrop') && !spec['backdrop'])
+          ro = model.rendering_options
+          ro['DrawHorizon'] = true
+          ro['DrawGround'] = true
+          ro['GroundTransparency'] = 100
+          ro['GroundColor'] = Sketchup::Color.new(120, 150, 90)
+          ro['SkyColor'] = Sketchup::Color.new(170, 205, 235)
+          model.styles.update_selected_style
+        end
+        before = model.layers.map { |l| [l, l.visible?] }
+        model.layers.each { |l| l.visible = !(l.name.start_with?(annotation) || hide.include?(l.name)) }
+        page = model.pages[name]
+        page ? page.update : (page = model.pages.add(name))
+        before.each { |l, v| l.visible = v }
+        model.layers.each { |l| page.set_visibility(l, !(l.name.start_with?(annotation) || hide.include?(l.name))) }
+        model.commit_operation
+      rescue StandardError
+        model.abort_operation
+        raise
+      end
+      "Scene '#{name}' saved (#{parallel ? 'parallel projection' : 'perspective'}#{cut ? ", cut at #{format('%+.2f', cut.to_f)} m" : ''}" \
+        "#{hide.empty? ? '' : ", hidden: #{hide.join(', ')}"}, shadows #{shadows ? 'on' : 'off'}). #{model.pages.count} scenes in the model. " \
+        "Export them all with export_views when the model is finished."
+    end
+  end
+
+  def self.add_slab(spec)
+    Detail.slab(spec)
+  end
+
+  def self.add_plants(spec)
+    Detail.plants(spec)
+  end
+
+  def self.add_scene(spec)
+    Detail.scene(spec)
   end
 
   def self.build_roof(spec)
@@ -2030,6 +2224,12 @@ module SU_MCP
           { success: true, result: Placement.report(args) }
         when "export_views"
           { success: true, result: Views.export(args) }
+        when "add_slab"
+          { success: true, result: Detail.slab(detail_spec(args)) }
+        when "add_plants"
+          { success: true, result: Detail.plants(detail_spec(args)) }
+        when "add_scene"
+          { success: true, result: Detail.scene(detail_spec(args)) }
         when "build_roof"
           { success: true, result: Detail.roof(detail_spec(args)) }
         when "add_siding"

@@ -10,7 +10,7 @@ Ini adalah versi yang sudah diperbaiki dari [mhyrr/sketchup-mcp](https://github.
 
 ![Tampak denah berdimensi dari model yang sama, dibuat lewat add_plan_view](docs/contoh-denah.png)
 
-> **Untuk Claude / agent AI yang diminta memasang ini:** ikuti [docs/INSTALL.md](docs/INSTALL.md) langkah demi langkah, lalu buat model contoh pertama di [docs/MODELING.md](docs/MODELING.md). Setiap model, termasuk model uji, wajib mengikuti [docs/STANDARDS.md](docs/STANDARDS.md) (tag, material, susunan grup) dan lolos audit.
+> **Untuk Claude / agent AI yang diminta memasang ini:** ikuti [docs/INSTALL.md](docs/INSTALL.md) langkah demi langkah, lalu buat model contoh pertama di [docs/MODELING.md](docs/MODELING.md) (cek pemasangan, satu menit), lalu bangun Caroline's Farmhouse dari [examples/caroline](examples/caroline/README.md) (uji modelling sungguhan). Setiap model, termasuk model uji, wajib mengikuti [docs/STANDARDS.md](docs/STANDARDS.md) (tag, material, susunan grup) dan lolos audit.
 
 ## Pasang (satu perintah)
 
@@ -55,6 +55,7 @@ Syarat: Windows 10/11, SketchUp desktop (bukan SketchUp Web), Claude Desktop. Di
 - [docs/INSTALL.md](docs/INSTALL.md): pemasangan langkah demi langkah dan cara verifikasi
 - [docs/STANDARDS.md](docs/STANDARDS.md): aturan dasar model (tag, material, susunan grup) dan audit
 - [docs/MODELING.md](docs/MODELING.md): cara kerja denah ke 3D, acuan ukuran dinding, laporan akurasi, model contoh pertama
+- [examples/caroline](examples/caroline/README.md): uji modelling sungguhan. Rumah dua lantai Caroline's Farmhouse dibangun dari 42 panggilan tool, dengan jawaban yang diharapkan
 - [docs/DETAIL.md](docs/DETAIL.md): atap (pelana, perisai, sandar, datar), papan dinding, lis dan shutter jendela, tiang, tangga, perabot
 - [docs/WORKFLOW.md](docs/WORKFLOW.md): panduan kerja untuk setiap proyek, dari membaca gambar sampai gambar hasil; cek tangga dan perabot, ekspor semua scene
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md): gejala dan solusinya

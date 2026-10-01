@@ -1,6 +1,6 @@
 # Atap dan detail bangunan
 
-Enam tool ini mengerjakan bagian yang sebelumnya harus ditulis tangan lewat `eval_ruby`. Semuanya memakai **meter**, mengikuti [aturan dasar model](STANDARDS.md) (nama, tag, material, wadah), dan satu panggilan adalah satu langkah undo.
+Tool-tool ini mengerjakan bagian yang sebelumnya harus ditulis tangan lewat `eval_ruby`. Semuanya memakai **meter**, mengikuti [aturan dasar model](STANDARDS.md) (nama, tag, material, wadah), dan satu panggilan adalah satu langkah undo.
 
 | Tool | Hasil | Tag |
 |---|---|---|
@@ -10,6 +10,9 @@ Enam tool ini mengerjakan bagian yang sebelumnya harus ditulis tangan lewat `eva
 | `add_posts` | Tiang teras: bubut, persegi, atau bulat | `06-Struktur` |
 | `build_stairs` | Tangga dari rangkaian lurus, putar, dan bordes | `07-Tangga` |
 | `place_furniture` | Perabot dan saniter sederhana, langsung dicek benturannya | `08-Furnitur` |
+| `add_slab` | Pelat di atas denah apa saja: lantai atas berlubang tangga, dek, balok, kaki bangunan, halaman | sesuai `kind` |
+| `add_plants` | Semak dan pohon sederhana | `09-Tapak` |
+| `add_scene` | Scene perspektif, potongan, dan tampak untuk `export_views` | |
 
 Urutan yang benar: dinding semua lantai (`build_floor_plan`) → `build_roof` → `add_posts` dan atap teras → `add_siding` → `add_window_trim` → `build_stairs` → `place_furniture` → `check_placement` → `SU_MCP.audit_model`. `add_siding` harus sebelum `add_window_trim`, dan setelah semua dinding (termasuk ampig) ada.
 
@@ -41,11 +44,12 @@ Lewat `eval_ruby` nama dan isinya sama: `SU_MCP.build_roof('type' => 'gable', ..
 | `base_z` | Tinggi atas dinding. Sisi bawah atap melewati titik ini tepat di garis dinding | 0 |
 | `pitch` | `"7.5:12"` (naik:datar), angka (`0.625`), atau `pitch_deg` dalam derajat | 0,5 |
 | `overhang` | Teritisan di sisi talang | 0,3 |
-| `rake` | Teritisan di sisi ampig (pelana dan sandar) | sama dengan `overhang` |
+| `rake` | Teritisan di sisi ampig (pelana dan sandar). Satu angka, atau `[awal, akhir]` kalau kedua ujung berbeda (misalnya 0 di ujung yang menempel ke bangunan lain) | sama dengan `overhang` |
 | `thickness` | Tebal atap, tegak lurus bidangnya | 0,15 |
 | `ridge` | Arah bubungan atap pelana: `"x"` atau `"y"` | sisi yang lebih panjang |
 | `seams` | Jarak garis rusuk seng yang turun mengikuti kemiringan; 0 berarti tanpa garis | 0 |
-| `gable_walls` | `true`, atau `{"thickness": 0.15, "material": "..."}`: mengisi dua segitiga ampig dengan dinding | tidak |
+| `gable_walls` | `true`, atau `{"thickness": 0.15, "material": "...", "ends": "both"}`: mengisi segitiga ampig dengan dinding. `ends`: `both`, `start`, atau `end` | tidak |
+| `infill` | Daftar dinding pengisi antara dinding yang lebih rendah dan sisi bawah atap miring: `{"from": [x, y], "to": [x, y], "thickness": 0.1, "base_z": 2.54}` (garis as dinding, dan tinggi atas dinding di bawahnya). Untuk atap pelana dan sandar | |
 | `fascia` | Tepi atap dicat putih (lisplang). `false` untuk mematikan, atau `[r, g, b]` | putih |
 | `name`, `group` | Nama elemen dan wadahnya di dalam bangunan | `Atap <Type>`, `Atap` |
 
@@ -163,6 +167,48 @@ Jawaban menyebut titik tiba di lantai atas dan tapak tangga (`Footprint x .. y .
 `at` adalah titik tengah perabot. Pada `rotation` 0 lebar searah x dan **bagian belakang menghadap utara (+y)**. Rotasi dalam derajat berlawanan arah jarum jam: 180 membuat belakangnya menempel dinding selatan, 90 dinding barat, -90 dinding timur. `size`, `name`, `material`, dan `color` bisa diatur per perabot; `z` untuk lantai yang berbeda dari `base_z`.
 
 Ini perabot massa untuk denah dan gambar potongan, bukan model detail. Jawaban ditutup dengan laporan `check_placement`: perbaiki setiap `PLACEMENT CONFLICT`. Perabot dengan nama yang sama di wadah yang sama diganti, jadi memindahkan perabot cukup dengan memanggil lagi dengan `name` yang sama.
+
+## `add_slab`
+
+```json
+{ "building": "Rumah A", "floor": "Lantai 2", "name": "Lantai",
+  "outline": [[0.1, 0.1], [7.2, 0.1], [7.2, 2.3], [6.3, 2.3], [6.3, 4.8], [0.1, 4.8]],
+  "top_z": 2.74, "thickness": 0.3, "material": "Lantai - Kayu", "color": [176, 132, 88] }
+```
+
+Pelat dari `top_z - thickness` sampai `top_z`, di atas `outline` (atau `from` dan `to` untuk persegi). `kind` menentukan tagnya: `lantai` (default), `struktur` (balok, kaki bata), `tapak` (halaman, setapak; tanpa `building` masuk ke wadah `Tapak`), `atap`. `floor` atau `group` menentukan wadahnya di dalam bangunan.
+
+Pemakaian utamanya: **lantai atas yang berlubang di atas tangga**. `build_floor_plan` lantai atas dipanggil tanpa `slab`, lalu lantainya dibuat dengan `add_slab` memakai denah yang sudah dikurangi tapak tangga dari jawaban `build_stairs`. Pelat dengan nama yang sama di wadah yang sama diganti.
+
+## `add_plants`
+
+```json
+{ "base_z": -0.6, "items": [
+  {"type": "shrub", "at": [1.0, -2.5], "size": 1.3},
+  {"type": "tree", "at": [-8.4, 6.6], "size": 4.5, "height": 7.6} ] }
+```
+
+`shrub` (semak, `size` = diameter) dan `tree` (pohon dengan batang dan tajuk). Semuanya masuk ke wadah `Tapak` dengan tag `09-Tapak`, jadi tersembunyi di denah dan bisa disembunyikan di tampak.
+
+## `add_scene`
+
+```json
+{ "name": "Potongan Lantai 1", "eye": [1.0, -6.6, 14.2], "target": [3.8, 3.0, 0], "cut_z": 2.44 }
+{ "name": "Tampak Selatan", "eye": [3.66, -22.9, 2.8], "target": [3.66, 0, 2.8], "height": 10.7, "hide": ["tapak"] }
+```
+
+| Kunci | Arti |
+|---|---|
+| `eye`, `target` | Posisi kamera dan titik yang dilihat |
+| `fov` | Sudut pandang perspektif (default 38) |
+| `height` | Sebagai ganti perspektif: proyeksi paralel yang memperlihatkan sekian meter (untuk tampak) |
+| `cut_z` | Potongan mendatar: semua di atas tinggi ini dibuang. Taruh sedikit di bawah plafon lantai yang mau diperlihatkan, dan di bawah teritisan atap |
+| `hide` | Jenis elemen yang disembunyikan di scene ini, misalnya `["tapak"]` atau `["atap"]` |
+| `shadows` | Default: menyala untuk perspektif, mati untuk paralel |
+
+Anotasi denah otomatis tersembunyi di scene ini. Scene perspektif juga memberi model warna langit dan tanah. Memanggil lagi dengan nama yang sama memperbarui scene. Denah berdimensi tetap dibuat dengan `add_plan_view`.
+
+Rumah dua lantai yang memakai semua tool ini: [Caroline's Farmhouse](../examples/caroline/README.md).
 
 ## Contoh lengkap
 

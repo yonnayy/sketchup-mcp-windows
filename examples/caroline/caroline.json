@@ -1,0 +1,2715 @@
+{
+ "title": "Caroline's Farmhouse",
+ "source": "Caroline's Farmhouse - The Original Starter Farmhouse Plans, a design by Jay Osborne, FreeFarmhouse.com. Licensed CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). This file is derived from those drawings and carries the same licence.",
+ "units": "metres (converted from the inches on the drawings by make_steps.py)",
+ "origin": "outside south-west corner of the 24 ft x 16 ft main house; x east, y north; z = 0 at the downstairs floor",
+ "how": "Call the tools in order, each with its args, and read every reply; 'expect' lists text the reply must contain.",
+ "steps": [
+  {
+   "n": 1,
+   "tool": "build_floor_plan",
+   "note": "Downstairs walls, openings and floor (sheet A1.1).",
+   "args": {
+    "spec": {
+     "building": "Caroline",
+     "name": "Lantai 1",
+     "base_z": 0.0,
+     "wall_height": 2.7432,
+     "wall_thickness": 0.0889,
+     "frame_width": 0.0381,
+     "walls": [
+      {
+       "id": "S1",
+       "from": [
+        0.0,
+        0.0
+       ],
+       "to": [
+        7.3152,
+        0.0
+       ],
+       "ref": "right"
+      },
+      {
+       "id": "E1",
+       "from": [
+        7.3152,
+        0.0
+       ],
+       "to": [
+        7.3152,
+        4.8768
+       ],
+       "ref": "right"
+      },
+      {
+       "id": "N1",
+       "from": [
+        7.3152,
+        4.8768
+       ],
+       "to": [
+        0.0,
+        4.8768
+       ],
+       "ref": "right"
+      },
+      {
+       "id": "W1",
+       "from": [
+        0.0,
+        4.8768
+       ],
+       "to": [
+        0.0,
+        0.0
+       ],
+       "ref": "right"
+      },
+      {
+       "id": "SRs",
+       "from": [
+        -1.7272,
+        2.1336
+       ],
+       "to": [
+        0.0,
+        2.1336
+       ],
+       "ref": "right",
+       "height": 2.54
+      },
+      {
+       "id": "SRn",
+       "from": [
+        0.0,
+        4.572
+       ],
+       "to": [
+        -1.7272,
+        4.572
+       ],
+       "ref": "right",
+       "height": 2.54
+      },
+      {
+       "id": "SRw",
+       "from": [
+        -1.7272,
+        4.572
+       ],
+       "to": [
+        -1.7272,
+        2.1336
+       ],
+       "ref": "right",
+       "height": 2.54
+      },
+      {
+       "id": "Bs",
+       "from": [
+        7.3152,
+        0.3048
+       ],
+       "to": [
+        9.0424,
+        0.3048
+       ],
+       "ref": "right",
+       "height": 2.54
+      },
+      {
+       "id": "Be",
+       "from": [
+        9.0424,
+        0.3048
+       ],
+       "to": [
+        9.0424,
+        2.7432
+       ],
+       "ref": "right",
+       "height": 2.54
+      },
+      {
+       "id": "Bn",
+       "from": [
+        9.0424,
+        2.7432
+       ],
+       "to": [
+        7.3152,
+        2.7432
+       ],
+       "ref": "right",
+       "height": 2.54
+      },
+      {
+       "id": "Ke",
+       "from": [
+        7.3152,
+        4.8768
+       ],
+       "to": [
+        7.3152,
+        7.9248
+       ],
+       "ref": "right",
+       "height": 2.54
+      },
+      {
+       "id": "Kn",
+       "from": [
+        7.3152,
+        7.9248
+       ],
+       "to": [
+        4.2672,
+        7.9248
+       ],
+       "ref": "right",
+       "height": 2.54
+      },
+      {
+       "id": "Kw",
+       "from": [
+        4.2672,
+        7.9248
+       ],
+       "to": [
+        4.2672,
+        4.8768
+       ],
+       "ref": "right",
+       "height": 2.54
+      },
+      {
+       "id": "Cw",
+       "from": [
+        6.5595,
+        0.0
+       ],
+       "to": [
+        6.5595,
+        0.7556
+       ],
+       "height": 2.4384
+      },
+      {
+       "id": "Cn",
+       "from": [
+        6.5595,
+        0.7556
+       ],
+       "to": [
+        7.3152,
+        0.7556
+       ],
+       "height": 2.4384
+      },
+      {
+       "id": "R1",
+       "from": [
+        5.8547,
+        1.9621
+       ],
+       "to": [
+        6.2294,
+        1.9621
+       ],
+       "height": 2.4384
+      },
+      {
+       "id": "SW",
+       "from": [
+        6.2294,
+        1.9621
+       ],
+       "to": [
+        6.2294,
+        3.791
+       ],
+       "height": 2.4384
+      },
+      {
+       "id": "R2",
+       "from": [
+        5.8991,
+        3.791
+       ],
+       "to": [
+        6.2294,
+        3.791
+       ],
+       "height": 2.4384
+      },
+      {
+       "id": "UW",
+       "from": [
+        5.8991,
+        3.791
+       ],
+       "to": [
+        5.8991,
+        4.8768
+       ],
+       "height": 2.0955
+      },
+      {
+       "id": "BK",
+       "from": [
+        6.2738,
+        3.448
+       ],
+       "to": [
+        7.3152,
+        3.448
+       ],
+       "thickness": 0.2921,
+       "height": 0.8636
+      }
+     ],
+     "openings": [
+      {
+       "wall": "S1",
+       "type": "window",
+       "offset": 0.9652,
+       "width": 0.8128,
+       "sill": 0.4572,
+       "height": 1.8288,
+       "fixed": true
+      },
+      {
+       "wall": "S1",
+       "type": "window",
+       "offset": 3.2512,
+       "width": 0.8128,
+       "sill": 0.4572,
+       "height": 1.8288,
+       "fixed": true
+      },
+      {
+       "wall": "S1",
+       "type": "door",
+       "offset": 5.4864,
+       "width": 0.9144,
+       "height": 2.1336,
+       "hinge": "end",
+       "swing": "left"
+      },
+      {
+       "wall": "E1",
+       "type": "door",
+       "offset": 1.0668,
+       "width": 0.6096,
+       "height": 2.032,
+       "hinge": "start",
+       "swing": "right"
+      },
+      {
+       "wall": "N1",
+       "type": "door",
+       "offset": 1.524,
+       "width": 0.8128,
+       "height": 2.032,
+       "style": "polos",
+       "cased": true
+      },
+      {
+       "wall": "N1",
+       "type": "window",
+       "offset": 5.3848,
+       "width": 0.8128,
+       "sill": 0.762,
+       "height": 1.524,
+       "fixed": true
+      },
+      {
+       "wall": "W1",
+       "type": "door",
+       "offset": 1.1684,
+       "width": 0.6096,
+       "height": 2.032,
+       "hinge": "end",
+       "swing": "right"
+      },
+      {
+       "wall": "W1",
+       "type": "window",
+       "offset": 3.2004,
+       "width": 0.8128,
+       "sill": 0.4572,
+       "height": 1.8288,
+       "fixed": true
+      },
+      {
+       "wall": "SRw",
+       "type": "window",
+       "offset": 0.9144,
+       "width": 0.6096,
+       "sill": 0.9144,
+       "height": 1.0668,
+       "fixed": true
+      },
+      {
+       "wall": "Be",
+       "type": "window",
+       "offset": 0.8128,
+       "width": 0.6096,
+       "sill": 0.9906,
+       "height": 1.0668,
+       "fixed": true
+      },
+      {
+       "wall": "Ke",
+       "type": "window",
+       "offset": 1.1049,
+       "width": 0.6096,
+       "sill": 0.9144,
+       "height": 1.0668,
+       "fixed": true
+      },
+      {
+       "wall": "Kw",
+       "type": "window",
+       "offset": 0.4572,
+       "width": 0.6096,
+       "sill": 0.9144,
+       "height": 1.0668,
+       "fixed": true
+      },
+      {
+       "wall": "Kw",
+       "type": "door",
+       "offset": 1.2954,
+       "width": 0.9144,
+       "height": 2.032,
+       "hinge": "end",
+       "swing": "left"
+      },
+      {
+       "wall": "Cn",
+       "type": "door",
+       "offset": 0.1079,
+       "width": 0.4572,
+       "height": 2.032,
+       "style": "polos"
+      },
+      {
+       "wall": "UW",
+       "type": "door",
+       "offset": 0.1333,
+       "width": 0.762,
+       "height": 2.032,
+       "hinge": "start",
+       "swing": "right"
+      }
+     ],
+     "slab": {
+      "outline": [
+       [
+        0.0,
+        0.0
+       ],
+       [
+        7.3152,
+        0.0
+       ],
+       [
+        7.3152,
+        0.3048
+       ],
+       [
+        9.0424,
+        0.3048
+       ],
+       [
+        9.0424,
+        2.7432
+       ],
+       [
+        7.3152,
+        2.7432
+       ],
+       [
+        7.3152,
+        7.9248
+       ],
+       [
+        4.2672,
+        7.9248
+       ],
+       [
+        4.2672,
+        4.8768
+       ],
+       [
+        0.0,
+        4.8768
+       ],
+       [
+        0.0,
+        4.572
+       ],
+       [
+        -1.7272,
+        4.572
+       ],
+       [
+        -1.7272,
+        2.1336
+       ],
+       [
+        0.0,
+        2.1336
+       ]
+      ],
+      "thickness": 0.254
+     }
+    }
+   },
+   "expect": [
+    "20 walls, 7 doors, 8 windows, 1 slab"
+   ]
+  },
+  {
+   "n": 2,
+   "tool": "build_floor_plan",
+   "note": "Upstairs walls and openings (sheet A1.2). Its floor comes next, with the stairwell left open.",
+   "args": {
+    "spec": {
+     "building": "Caroline",
+     "name": "Lantai 2",
+     "base_z": 2.7432,
+     "wall_height": 2.4638,
+     "wall_thickness": 0.0889,
+     "frame_width": 0.0381,
+     "walls": [
+      {
+       "id": "S2",
+       "from": [
+        0.0,
+        0.0
+       ],
+       "to": [
+        7.3152,
+        0.0
+       ],
+       "ref": "right"
+      },
+      {
+       "id": "E2",
+       "from": [
+        7.3152,
+        0.0
+       ],
+       "to": [
+        7.3152,
+        4.8768
+       ],
+       "ref": "right"
+      },
+      {
+       "id": "N2",
+       "from": [
+        7.3152,
+        4.8768
+       ],
+       "to": [
+        0.0,
+        4.8768
+       ],
+       "ref": "right"
+      },
+      {
+       "id": "W2",
+       "from": [
+        0.0,
+        4.8768
+       ],
+       "to": [
+        0.0,
+        0.0
+       ],
+       "ref": "right"
+      },
+      {
+       "id": "MP",
+       "from": [
+        4.1593,
+        0.0
+       ],
+       "to": [
+        4.1593,
+        3.791
+       ]
+      },
+      {
+       "id": "BEw",
+       "from": [
+        2.3813,
+        3.1178
+       ],
+       "to": [
+        2.3813,
+        4.8768
+       ]
+      },
+      {
+       "id": "BS",
+       "from": [
+        0.0,
+        3.1178
+       ],
+       "to": [
+        2.3813,
+        3.1178
+       ],
+       "thickness": 0.1397
+      },
+      {
+       "id": "HW",
+       "from": [
+        2.3813,
+        3.791
+       ],
+       "to": [
+        6.2294,
+        3.791
+       ]
+      },
+      {
+       "id": "CWw",
+       "from": [
+        3.4226,
+        2.2923
+       ],
+       "to": [
+        3.4226,
+        3.791
+       ]
+      },
+      {
+       "id": "CS",
+       "from": [
+        3.4226,
+        2.2923
+       ],
+       "to": [
+        4.1593,
+        2.2923
+       ]
+      },
+      {
+       "id": "CN",
+       "from": [
+        3.4226,
+        3.3337
+       ],
+       "to": [
+        4.1593,
+        3.3337
+       ]
+      },
+      {
+       "id": "EW",
+       "from": [
+        6.2294,
+        2.2923
+       ],
+       "to": [
+        6.2294,
+        3.791
+       ]
+      },
+      {
+       "id": "ES",
+       "from": [
+        6.2294,
+        2.2923
+       ],
+       "to": [
+        7.3152,
+        2.2923
+       ]
+      },
+      {
+       "id": "EN",
+       "from": [
+        6.2294,
+        3.283
+       ],
+       "to": [
+        7.3152,
+        3.283
+       ]
+      }
+     ],
+     "openings": [
+      {
+       "wall": "S2",
+       "type": "window",
+       "offset": 0.9652,
+       "width": 0.8128,
+       "sill": 0.6096,
+       "height": 1.524,
+       "fixed": true
+      },
+      {
+       "wall": "S2",
+       "type": "window",
+       "offset": 3.2512,
+       "width": 0.8128,
+       "sill": 0.6096,
+       "height": 1.524,
+       "fixed": true
+      },
+      {
+       "wall": "S2",
+       "type": "window",
+       "offset": 5.5372,
+       "width": 0.8128,
+       "sill": 0.6096,
+       "height": 1.524,
+       "fixed": true
+      },
+      {
+       "wall": "W2",
+       "type": "window",
+       "offset": 2.032,
+       "width": 0.8128,
+       "sill": 0.6096,
+       "height": 1.524,
+       "fixed": true
+      },
+      {
+       "wall": "N2",
+       "type": "window",
+       "offset": 5.3848,
+       "width": 0.8128,
+       "sill": 0.6096,
+       "height": 1.524,
+       "fixed": true
+      },
+      {
+       "wall": "N2",
+       "type": "window",
+       "offset": 1.5748,
+       "width": 0.8128,
+       "sill": 0.6096,
+       "height": 1.524,
+       "fixed": true
+      },
+      {
+       "wall": "E2",
+       "type": "window",
+       "offset": 3.81,
+       "width": 0.6096,
+       "sill": 1.0668,
+       "height": 1.0668,
+       "fixed": true
+      },
+      {
+       "wall": "HW",
+       "type": "door",
+       "offset": 0.146,
+       "width": 0.762,
+       "height": 2.032,
+       "hinge": "start",
+       "swing": "right"
+      },
+      {
+       "wall": "HW",
+       "type": "door",
+       "offset": 1.1874,
+       "width": 0.4572,
+       "height": 2.032,
+       "style": "polos"
+      },
+      {
+       "wall": "HW",
+       "type": "door",
+       "offset": 1.924,
+       "width": 0.762,
+       "height": 2.032,
+       "hinge": "end",
+       "swing": "right"
+      },
+      {
+       "wall": "BEw",
+       "type": "door",
+       "offset": 0.8065,
+       "width": 0.762,
+       "height": 2.032,
+       "hinge": "end",
+       "swing": "left"
+      },
+      {
+       "wall": "CWw",
+       "type": "door",
+       "offset": 0.1841,
+       "width": 0.6096,
+       "height": 2.032,
+       "hinge": "start",
+       "swing": "left"
+      },
+      {
+       "wall": "EW",
+       "type": "door",
+       "offset": 0.1841,
+       "width": 0.6096,
+       "height": 2.032,
+       "hinge": "start",
+       "swing": "right"
+      }
+     ]
+    }
+   },
+   "expect": [
+    "14 walls, 6 doors, 7 windows"
+   ]
+  },
+  {
+   "n": 3,
+   "tool": "add_slab",
+   "note": "Upstairs floor with the stairwell cut out.",
+   "args": {
+    "spec": {
+     "building": "Caroline",
+     "floor": "Lantai 2",
+     "name": "Lantai",
+     "top_z": 2.7432,
+     "thickness": 0.3048,
+     "outline": [
+      [
+       0.0889,
+       0.0889
+      ],
+      [
+       7.2263,
+       0.0889
+      ],
+      [
+       7.2263,
+       2.3368
+      ],
+      [
+       6.2738,
+       2.3368
+      ],
+      [
+       6.2738,
+       3.8354
+      ],
+      [
+       5.7912,
+       3.8354
+      ],
+      [
+       5.7912,
+       4.7879
+      ],
+      [
+       0.0889,
+       4.7879
+      ]
+     ],
+     "material": "Lantai - Kayu",
+     "color": [
+      176,
+      132,
+      88
+     ]
+    }
+   },
+   "expect": [
+    "Slab 'Lantai' (lantai) built in 'Lantai 2'"
+   ]
+  },
+  {
+   "n": 4,
+   "tool": "verify_dimensions",
+   "note": "Accuracy report against the plan dimensions. The two side room lines differ by 1 to 1.5 in: the drawing gives finished clear sizes there, the model has bare 3.5 in stud walls.",
+   "args": {
+    "tolerance": 0.005,
+    "checks": [
+     {
+      "label": "Lebar total lt.1 35'-4\" (A1.1)",
+      "overall": "x",
+      "building": "Caroline",
+      "floor": "Lantai 1",
+      "expected": 10.7696
+     },
+     {
+      "label": "Panjang total lt.1 26'-0\" (A1.1)",
+      "overall": "y",
+      "building": "Caroline",
+      "floor": "Lantai 1",
+      "expected": 7.9248
+     },
+     {
+      "label": "Badan utama lebar 24'-0\" (A1.2)",
+      "overall": "x",
+      "building": "Caroline",
+      "floor": "Lantai 2",
+      "expected": 7.3152
+     },
+     {
+      "label": "Badan utama dalam 16'-0\" (A1.2)",
+      "overall": "y",
+      "building": "Caroline",
+      "floor": "Lantai 2",
+      "expected": 4.8768
+     },
+     {
+      "label": "Living Room lebar (24'-0\" luar - dinding barat - rak 13\" dan dinding tangga)",
+      "at": [
+       3.556,
+       2.286
+      ],
+      "axis": "x",
+      "expected": 6.096
+     },
+     {
+      "label": "Living Room dalam (16'-0\" luar - 2 dinding 3,5\")",
+      "at": [
+       3.556,
+       2.286
+      ],
+      "axis": "y",
+      "expected": 4.699
+     },
+     {
+      "label": "Kitchen bersih (10'-0\" luar - 2 dinding 3,5\")",
+      "at": [
+       5.79,
+       6.35
+      ],
+      "expected": [
+       2.8702,
+       2.9591
+      ]
+     },
+     {
+      "label": "Bath lt.1 (5'-8\" x 8'-0\" luar - dinding)",
+      "at": [
+       8.128,
+       1.524
+      ],
+      "expected": [
+       1.6383,
+       2.2606
+      ]
+     },
+     {
+      "label": "Side Room lebar (gambar: 5'-3\" CLEAR)",
+      "at": [
+       -0.85,
+       3.3
+      ],
+      "axis": "x",
+      "expected": 1.6002
+     },
+     {
+      "label": "Side Room dalam (gambar: 7'-4\" CLEAR)",
+      "at": [
+       -0.85,
+       3.3
+      ],
+      "axis": "y",
+      "expected": 2.2352
+     },
+     {
+      "label": "Bedroom timur lebar 6'-6\" + 3'-5\"",
+      "at": [
+       5.6,
+       1
+      ],
+      "z": 2.7432,
+      "axis": "x",
+      "expected": 3.0226
+     },
+     {
+      "label": "Bedroom barat lebar (7'-8\" + 3'-5\" + 2'-5\" dari muka luar)",
+      "at": [
+       2,
+       1
+      ],
+      "z": 2.7432,
+      "axis": "x",
+      "expected": 4.0259
+     },
+     {
+      "label": "Bedroom barat dalam 7'-1\" (ke dinding closet)",
+      "at": [
+       3.8,
+       1
+      ],
+      "z": 2.7432,
+      "axis": "y",
+      "expected": 2.159
+     },
+     {
+      "label": "Hall lt.2 dalam (3'-5\" ke muka luar - dinding 3,5\")",
+      "at": [
+       4.318,
+       4.318
+      ],
+      "z": 2.7432,
+      "axis": "y",
+      "expected": 0.9525
+     },
+     {
+      "label": "Bath lt.2 lebar (7'-8\" dari muka luar - dinding)",
+      "at": [
+       1.143,
+       3.937
+      ],
+      "z": 2.7432,
+      "axis": "x",
+      "expected": 2.2479
+     }
+    ]
+   },
+   "expect": [
+    "15 of 17 dimensions match"
+   ]
+  },
+  {
+   "n": 5,
+   "tool": "build_roof",
+   "note": "Main roof 7.5:12 with both gable walls (A2.x). Top of ridge must be +23'-0\" = 7.010 m.",
+   "args": {
+    "spec": {
+     "material": "Atap - Seng Abu",
+     "color": [
+      74,
+      80,
+      86
+     ],
+     "seams": 0.4064,
+     "building": "Caroline",
+     "name": "Atap Utama",
+     "type": "gable",
+     "ridge": "x",
+     "base_z": 5.207,
+     "pitch": "7.5:12",
+     "overhang": 0.2286,
+     "rake": 0.1524,
+     "thickness": 0.2369,
+     "gable_walls": {
+      "thickness": 0.0889
+     },
+     "from": [
+      0.0,
+      0.0
+     ],
+     "to": [
+      7.3152,
+      4.8768
+     ]
+    }
+   },
+   "expect": [
+    "top of ridge at +7.010 m",
+    "2 gable walls"
+   ]
+  },
+  {
+   "n": 6,
+   "tool": "build_roof",
+   "note": "Front porch roof 3:12, mitred at both ends where it turns the corners.",
+   "args": {
+    "spec": {
+     "material": "Atap - Seng Abu",
+     "color": [
+      74,
+      80,
+      86
+     ],
+     "seams": 0.4064,
+     "building": "Caroline",
+     "type": "shed",
+     "top_z": 3.0226,
+     "pitch": "3:12",
+     "overhang": 0.3048,
+     "thickness": 0.1232,
+     "name": "Atap Teras Depan",
+     "high_side": "north",
+     "miter": {
+      "start": true,
+      "end": true
+     },
+     "from": [
+      -1.7272,
+      -1.7272
+     ],
+     "to": [
+      9.0424,
+      0.0
+     ]
+    }
+   },
+   "expect": [
+    "(shed)"
+   ]
+  },
+  {
+   "n": 7,
+   "tool": "build_roof",
+   "note": "West roof: one 3:12 plane over the porch return and the side room, with the wall tops filled up to it.",
+   "args": {
+    "spec": {
+     "material": "Atap - Seng Abu",
+     "color": [
+      74,
+      80,
+      86
+     ],
+     "seams": 0.4064,
+     "building": "Caroline",
+     "type": "shed",
+     "top_z": 3.0226,
+     "pitch": "3:12",
+     "overhang": 0.3048,
+     "thickness": 0.1232,
+     "name": "Atap Teras Barat",
+     "high_side": "east",
+     "miter": {
+      "start": true
+     },
+     "rake": [
+      0,
+      0.1524
+     ],
+     "infill": [
+      {
+       "from": [
+        -1.7272,
+        2.178
+       ],
+       "to": [
+        0.0,
+        2.178
+       ],
+       "thickness": 0.0889,
+       "base_z": 2.54
+      },
+      {
+       "from": [
+        -1.7272,
+        4.5275
+       ],
+       "to": [
+        0.0,
+        4.5275
+       ],
+       "thickness": 0.0889,
+       "base_z": 2.54
+      },
+      {
+       "from": [
+        -1.6827,
+        2.1336
+       ],
+       "to": [
+        -1.6827,
+        4.572
+       ],
+       "thickness": 0.0889,
+       "base_z": 2.54
+      }
+     ],
+     "from": [
+      -1.7272,
+      -1.7272
+     ],
+     "to": [
+      0.0,
+      4.572
+     ]
+    }
+   },
+   "expect": [
+    "3 infill walls"
+   ]
+  },
+  {
+   "n": 8,
+   "tool": "build_roof",
+   "note": "East roof: the same over the porch end and the bath.",
+   "args": {
+    "spec": {
+     "material": "Atap - Seng Abu",
+     "color": [
+      74,
+      80,
+      86
+     ],
+     "seams": 0.4064,
+     "building": "Caroline",
+     "type": "shed",
+     "top_z": 3.0226,
+     "pitch": "3:12",
+     "overhang": 0.3048,
+     "thickness": 0.1232,
+     "name": "Atap Teras Timur",
+     "high_side": "west",
+     "miter": {
+      "start": true
+     },
+     "rake": [
+      0,
+      0.1524
+     ],
+     "infill": [
+      {
+       "from": [
+        7.3152,
+        0.3493
+       ],
+       "to": [
+        9.0424,
+        0.3493
+       ],
+       "thickness": 0.0889,
+       "base_z": 2.54
+      },
+      {
+       "from": [
+        7.3152,
+        2.6987
+       ],
+       "to": [
+        9.0424,
+        2.6987
+       ],
+       "thickness": 0.0889,
+       "base_z": 2.54
+      },
+      {
+       "from": [
+        8.9979,
+        0.3048
+       ],
+       "to": [
+        8.9979,
+        2.7432
+       ],
+       "thickness": 0.0889,
+       "base_z": 2.54
+      }
+     ],
+     "from": [
+      7.3152,
+      -1.7272
+     ],
+     "to": [
+      9.0424,
+      2.7432
+     ]
+    }
+   },
+   "expect": [
+    "3 infill walls"
+   ]
+  },
+  {
+   "n": 9,
+   "tool": "build_roof",
+   "note": "Rear roof 3:12 over the kitchen and the screen porch, gable wall at the back only.",
+   "args": {
+    "spec": {
+     "material": "Atap - Seng Abu",
+     "color": [
+      74,
+      80,
+      86
+     ],
+     "seams": 0.4064,
+     "building": "Caroline",
+     "name": "Atap Belakang",
+     "type": "gable",
+     "ridge": "y",
+     "base_z": 2.54,
+     "pitch": "3:12",
+     "overhang": 0.2286,
+     "rake": [
+      0,
+      0.2286
+     ],
+     "thickness": 0.1232,
+     "gable_walls": {
+      "thickness": 0.0889,
+      "ends": "end"
+     },
+     "infill": [
+      {
+       "from": [
+        4.3117,
+        4.8768
+       ],
+       "to": [
+        4.3117,
+        7.8359
+       ],
+       "thickness": 0.0889,
+       "base_z": 2.54
+      }
+     ],
+     "from": [
+      2.4384,
+      4.8768
+     ],
+     "to": [
+      7.3152,
+      7.9248
+     ]
+    }
+   },
+   "expect": [
+    "1 gable walls",
+    "1 infill walls"
+   ]
+  },
+  {
+   "n": 10,
+   "tool": "add_slab",
+   "note": "Brick foundation under the house, down to grade.",
+   "args": {
+    "spec": {
+     "material": "Struktur - Bata",
+     "color": [
+      156,
+      91,
+      75
+     ],
+     "building": "Caroline",
+     "name": "Kaki Bata",
+     "kind": "struktur",
+     "top_z": -0.254,
+     "thickness": 0.381,
+     "outline": [
+      [
+       0.0,
+       0.0
+      ],
+      [
+       7.3152,
+       0.0
+      ],
+      [
+       7.3152,
+       0.3048
+      ],
+      [
+       9.0424,
+       0.3048
+      ],
+      [
+       9.0424,
+       2.7432
+      ],
+      [
+       7.3152,
+       2.7432
+      ],
+      [
+       7.3152,
+       7.9248
+      ],
+      [
+       4.2672,
+       7.9248
+      ],
+      [
+       4.2672,
+       4.8768
+      ],
+      [
+       0.0,
+       4.8768
+      ],
+      [
+       0.0,
+       4.572
+      ],
+      [
+       -1.7272,
+       4.572
+      ],
+      [
+       -1.7272,
+       2.1336
+      ],
+      [
+       0.0,
+       2.1336
+      ]
+     ]
+    }
+   },
+   "expect": [
+    "Slab 'Kaki Bata' (struktur)"
+   ]
+  },
+  {
+   "n": 11,
+   "tool": "add_slab",
+   "note": "Porch deck 5'-8\" deep, wrapping the south-west corner.",
+   "args": {
+    "spec": {
+     "building": "Caroline",
+     "group": "Teras",
+     "name": "Dek Teras",
+     "top_z": -0.1016,
+     "thickness": 0.2032,
+     "outline": [
+      [
+       -1.7272,
+       -1.7272
+      ],
+      [
+       9.0424,
+       -1.7272
+      ],
+      [
+       9.0424,
+       0.3048
+      ],
+      [
+       7.3152,
+       0.3048
+      ],
+      [
+       7.3152,
+       0.0
+      ],
+      [
+       0.0,
+       0.0
+      ],
+      [
+       0.0,
+       2.1336
+      ],
+      [
+       -1.7272,
+       2.1336
+      ]
+     ],
+     "material": "Lantai - Papan Teras",
+     "color": [
+      166,
+      170,
+      168
+     ]
+    }
+   },
+   "expect": [
+    "Slab 'Dek Teras' (lantai) built in 'Teras'"
+   ]
+  },
+  {
+   "n": 12,
+   "tool": "add_posts",
+   "note": "Brick piers under the porch posts.",
+   "args": {
+    "spec": {
+     "material": "Struktur - Bata",
+     "color": [
+      156,
+      91,
+      75
+     ],
+     "building": "Caroline",
+     "group": "Teras",
+     "name": "Umpak Bata",
+     "style": "square",
+     "size": 0.4064,
+     "base_z": -0.635,
+     "height": 0.3302,
+     "points": [
+      [
+       -1.6573,
+       -1.6573
+      ],
+      [
+       0.4572,
+       -1.6573
+      ],
+      [
+       2.5908,
+       -1.6573
+      ],
+      [
+       4.7244,
+       -1.6573
+      ],
+      [
+       6.858,
+       -1.6573
+      ],
+      [
+       8.9789,
+       -1.6573
+      ],
+      [
+       -1.6573,
+       0.381
+      ]
+     ]
+    }
+   },
+   "expect": [
+    "7 posts 'Umpak Bata 1..7' (square"
+   ]
+  },
+  {
+   "n": 13,
+   "tool": "add_posts",
+   "note": "Seven turned porch posts (detail 8/A4.0: about 6x6, 8'-0\" approx).",
+   "args": {
+    "spec": {
+     "material": "Struktur - Kayu Putih",
+     "color": [
+      245,
+      245,
+      240
+     ],
+     "building": "Caroline",
+     "group": "Teras",
+     "name": "Tiang Teras",
+     "style": "turned",
+     "size": 0.1651,
+     "base_z": -0.1016,
+     "height": 2.5146,
+     "foot": 0.762,
+     "cap": 0.2032,
+     "points": [
+      [
+       -1.6573,
+       -1.6573
+      ],
+      [
+       0.4572,
+       -1.6573
+      ],
+      [
+       2.5908,
+       -1.6573
+      ],
+      [
+       4.7244,
+       -1.6573
+      ],
+      [
+       6.858,
+       -1.6573
+      ],
+      [
+       8.9789,
+       -1.6573
+      ],
+      [
+       -1.6573,
+       0.381
+      ]
+     ]
+    }
+   },
+   "expect": [
+    "7 posts 'Tiang Teras 1..7' (turned"
+   ]
+  },
+  {
+   "n": 14,
+   "tool": "add_slab",
+   "note": "Porch beam on the posts.",
+   "args": {
+    "spec": {
+     "material": "Struktur - Kayu Putih",
+     "color": [
+      245,
+      245,
+      240
+     ],
+     "building": "Caroline",
+     "group": "Teras",
+     "name": "Balok Teras Depan",
+     "kind": "struktur",
+     "top_z": 2.6035,
+     "thickness": 0.1905,
+     "from": [
+      -1.7399,
+      -1.7399
+     ],
+     "to": [
+      9.0551,
+      -1.5748
+     ]
+    }
+   },
+   "expect": [
+    "(struktur)"
+   ]
+  },
+  {
+   "n": 15,
+   "tool": "add_slab",
+   "note": "Porch beam on the posts.",
+   "args": {
+    "spec": {
+     "material": "Struktur - Kayu Putih",
+     "color": [
+      245,
+      245,
+      240
+     ],
+     "building": "Caroline",
+     "group": "Teras",
+     "name": "Balok Teras Barat",
+     "kind": "struktur",
+     "top_z": 2.6035,
+     "thickness": 0.1905,
+     "from": [
+      -1.7399,
+      -1.5748
+     ],
+     "to": [
+      -1.5748,
+      2.1336
+     ]
+    }
+   },
+   "expect": [
+    "(struktur)"
+   ]
+  },
+  {
+   "n": 16,
+   "tool": "add_slab",
+   "note": "Porch beam on the posts.",
+   "args": {
+    "spec": {
+     "material": "Struktur - Kayu Putih",
+     "color": [
+      245,
+      245,
+      240
+     ],
+     "building": "Caroline",
+     "group": "Teras",
+     "name": "Balok Teras Timur",
+     "kind": "struktur",
+     "top_z": 2.6035,
+     "thickness": 0.1905,
+     "from": [
+      8.89,
+      -1.5748
+     ],
+     "to": [
+      9.0551,
+      0.3048
+     ]
+    }
+   },
+   "expect": [
+    "(struktur)"
+   ]
+  },
+  {
+   "n": 17,
+   "tool": "add_slab",
+   "note": "Screen porch floor beside the kitchen.",
+   "args": {
+    "spec": {
+     "building": "Caroline",
+     "group": "Teras",
+     "name": "Pelat Screen Porch",
+     "top_z": -0.3048,
+     "thickness": 0.1016,
+     "from": [
+      2.4384,
+      4.8768
+     ],
+     "to": [
+      4.2672,
+      7.9248
+     ],
+     "material": "Lantai - Beton",
+     "color": [
+      170,
+      170,
+      170
+     ]
+    }
+   },
+   "expect": [
+    "Slab 'Pelat Screen Porch'"
+   ]
+  },
+  {
+   "n": 18,
+   "tool": "add_posts",
+   "note": "Screen porch posts.",
+   "args": {
+    "spec": {
+     "material": "Struktur - Kayu Putih",
+     "color": [
+      245,
+      245,
+      240
+     ],
+     "building": "Caroline",
+     "group": "Teras",
+     "name": "Tiang Screen Porch",
+     "style": "square",
+     "size": 0.1397,
+     "base_z": -0.3048,
+     "height": 2.6416,
+     "points": [
+      [
+       2.5082,
+       4.9466
+      ],
+      [
+       2.5082,
+       5.6896
+      ],
+      [
+       2.5082,
+       6.6802
+      ],
+      [
+       2.5082,
+       7.8549
+      ],
+      [
+       3.3782,
+       7.8549
+      ]
+     ]
+    }
+   },
+   "expect": [
+    "5 posts"
+   ]
+  },
+  {
+   "n": 19,
+   "tool": "add_slab",
+   "note": "Screen porch beam.",
+   "args": {
+    "spec": {
+     "material": "Struktur - Kayu Putih",
+     "color": [
+      245,
+      245,
+      240
+     ],
+     "building": "Caroline",
+     "group": "Teras",
+     "name": "Balok Screen Porch Barat",
+     "kind": "struktur",
+     "top_z": 2.54,
+     "thickness": 0.2032,
+     "from": [
+      2.4384,
+      4.8768
+     ],
+     "to": [
+      2.5781,
+      7.9248
+     ]
+    }
+   },
+   "expect": [
+    "(struktur)"
+   ]
+  },
+  {
+   "n": 20,
+   "tool": "add_slab",
+   "note": "Screen porch beam.",
+   "args": {
+    "spec": {
+     "material": "Struktur - Kayu Putih",
+     "color": [
+      245,
+      245,
+      240
+     ],
+     "building": "Caroline",
+     "group": "Teras",
+     "name": "Balok Screen Porch Utara",
+     "kind": "struktur",
+     "top_z": 2.54,
+     "thickness": 0.2032,
+     "from": [
+      2.5781,
+      7.7851
+     ],
+     "to": [
+      4.2672,
+      7.9248
+     ]
+    }
+   },
+   "expect": [
+    "(struktur)"
+   ]
+  },
+  {
+   "n": 21,
+   "tool": "build_stairs",
+   "note": "Brick steps up to the porch at the front door (3 risers of 7 in).",
+   "args": {
+    "spec": {
+     "building": "Caroline",
+     "group": "Teras",
+     "base_z": -0.635,
+     "rise": 0.5334,
+     "risers": 3,
+     "width": 1.2192,
+     "tread": 0.2794,
+     "material": "Tangga - Bata",
+     "color": [
+      156,
+      91,
+      75
+     ],
+     "name": "Tangga Depan",
+     "start": [
+      5.9436,
+      -2.286
+     ],
+     "direction": 90
+    }
+   },
+   "expect": [
+    "3 risers of 0.1778 m, 2 treads"
+   ]
+  },
+  {
+   "n": 22,
+   "tool": "build_stairs",
+   "note": "Brick steps at the west end of the porch.",
+   "args": {
+    "spec": {
+     "building": "Caroline",
+     "group": "Teras",
+     "base_z": -0.635,
+     "rise": 0.5334,
+     "risers": 3,
+     "width": 1.2192,
+     "tread": 0.2794,
+     "material": "Tangga - Bata",
+     "color": [
+      156,
+      91,
+      75
+     ],
+     "name": "Tangga Samping",
+     "start": [
+      -2.286,
+      1.524
+     ],
+     "direction": 0
+    }
+   },
+   "expect": [
+    "3 risers of 0.1778 m, 2 treads"
+   ]
+  },
+  {
+   "n": 23,
+   "tool": "build_stairs",
+   "note": "Winder stairs (A1.2, details 5-7/A4.0).",
+   "args": {
+    "spec": {
+     "building": "Caroline",
+     "name": "Tangga",
+     "start": [
+      6.7627,
+      1.8034
+     ],
+     "direction": 90,
+     "base_z": 0,
+     "rise": 2.7432,
+     "risers": 14,
+     "width": 0.9271,
+     "tread": 0.254,
+     "waist": 0.0508,
+     "segments": [
+      {
+       "type": "flight",
+       "treads": 8
+      },
+      {
+       "type": "winder",
+       "turn": "left",
+       "steps": 3
+      },
+      {
+       "type": "flight",
+       "treads": 2
+      }
+     ],
+     "material": "Tangga - Kayu",
+     "color": [
+      168,
+      124,
+      82
+     ]
+    }
+   },
+   "expect": [
+    "14 risers of 0.1959 m, 13 treads in 3 parts",
+    "on +2.743 m"
+   ]
+  },
+  {
+   "n": 24,
+   "tool": "add_slab",
+   "note": "East bedroom closet on a 36 in raised platform over the stairs (detail 4/A4.0).",
+   "args": {
+    "spec": {
+     "building": "Caroline",
+     "floor": "Lantai 2",
+     "name": "Platform Lemari",
+     "top_z": 3.6576,
+     "thickness": 0.3048,
+     "from": [
+      6.2738,
+      2.3368
+     ],
+     "to": [
+      7.2263,
+      3.2766
+     ],
+     "material": "Lantai - Kayu"
+    }
+   },
+   "expect": [
+    "Slab 'Platform Lemari'"
+   ]
+  },
+  {
+   "n": 25,
+   "tool": "add_siding",
+   "note": "6 in clapboard on every outside face, corner boards (detail 3/A4.0). Inside walls must be listed as such.",
+   "args": {
+    "spec": {
+     "building": "Caroline",
+     "style": "clapboard",
+     "spacing": 0.127,
+     "corner_boards": 0.1143
+    }
+   },
+   "expect": [
+    "corner boards"
+   ]
+  },
+  {
+   "n": 26,
+   "tool": "add_window_trim",
+   "note": "Head trim, sill and operable shutters on all 15 windows.",
+   "args": {
+    "spec": {
+     "building": "Caroline",
+     "shutter_material": "Jendela - Shutter Hijau",
+     "shutter_color": [
+      40,
+      66,
+      50
+     ]
+    }
+   },
+   "expect": [
+    "added to 15 of 15 windows"
+   ]
+  },
+  {
+   "n": 27,
+   "tool": "place_furniture",
+   "note": "Downstairs furniture and fixtures.",
+   "args": {
+    "spec": {
+     "building": "Caroline",
+     "floor": "Lantai 1",
+     "base_z": 0,
+     "items": [
+      {
+       "type": "toilet",
+       "name": "Kloset Bawah",
+       "at": [
+        7.7724,
+        2.2606
+       ],
+       "size": [
+        0.4572,
+        0.7112,
+        0.762
+       ],
+       "rotation": 90
+      },
+      {
+       "type": "shower",
+       "name": "Shower",
+       "at": [
+        8.5344,
+        2.2352
+       ],
+       "size": [
+        0.8128,
+        0.8128,
+        0.1016
+       ]
+      },
+      {
+       "type": "sink",
+       "name": "Wastafel Bawah",
+       "at": [
+        8.5344,
+        0.6604
+       ],
+       "size": [
+        0.7112,
+        0.508,
+        0.8128
+       ],
+       "rotation": 180
+      },
+      {
+       "type": "cabinet",
+       "name": "Kabinet Dapur Utara",
+       "at": [
+        6.1468,
+        7.5184
+       ],
+       "size": [
+        2.1336,
+        0.6096,
+        0.9144
+       ]
+      },
+      {
+       "type": "cabinet",
+       "name": "Kabinet Dapur Timur",
+       "at": [
+        6.9088,
+        6.5532
+       ],
+       "size": [
+        1.3208,
+        0.6096,
+        0.9144
+       ],
+       "rotation": -90
+      },
+      {
+       "type": "stove",
+       "name": "Kompor",
+       "at": [
+        4.7244,
+        7.493
+       ],
+       "size": [
+        0.7112,
+        0.6604,
+        0.9144
+       ]
+      },
+      {
+       "type": "fridge",
+       "name": "Kulkas",
+       "at": [
+        6.8072,
+        5.3848
+       ],
+       "size": [
+        0.8128,
+        0.8128,
+        1.7272
+       ]
+      },
+      {
+       "type": "sofa",
+       "name": "Sofa",
+       "at": [
+        1.778,
+        0.6604
+       ],
+       "size": [
+        2.032,
+        0.9144,
+        0.8636
+       ],
+       "rotation": 180
+      },
+      {
+       "type": "table",
+       "name": "Meja Kopi",
+       "at": [
+        1.778,
+        1.7526
+       ],
+       "size": [
+        1.016,
+        0.5588,
+        0.4064
+       ]
+      },
+      {
+       "type": "table",
+       "name": "Meja Makan",
+       "at": [
+        2.4384,
+        3.4544
+       ],
+       "size": [
+        1.8288,
+        0.9144,
+        0.762
+       ]
+      },
+      {
+       "type": "chair",
+       "name": "Kursi Makan 1",
+       "at": [
+        2.032,
+        2.7432
+       ],
+       "size": [
+        0.4064,
+        0.4064,
+        0.9144
+       ],
+       "rotation": 180
+      },
+      {
+       "type": "chair",
+       "name": "Kursi Makan 2",
+       "at": [
+        2.8448,
+        2.7432
+       ],
+       "size": [
+        0.4064,
+        0.4064,
+        0.9144
+       ],
+       "rotation": 180
+      },
+      {
+       "type": "chair",
+       "name": "Kursi Makan 3",
+       "at": [
+        2.032,
+        4.1656
+       ],
+       "size": [
+        0.4064,
+        0.4064,
+        0.9144
+       ]
+      },
+      {
+       "type": "chair",
+       "name": "Kursi Makan 4",
+       "at": [
+        2.8448,
+        4.1656
+       ],
+       "size": [
+        0.4064,
+        0.4064,
+        0.9144
+       ]
+      },
+      {
+       "type": "desk",
+       "name": "Meja Side Room",
+       "at": [
+        -1.27,
+        2.9464
+       ],
+       "size": [
+        1.2192,
+        0.6096,
+        0.762
+       ],
+       "rotation": 90
+      }
+     ]
+    }
+   },
+   "expect": [
+    "15 pieces placed in 'Lantai 1'"
+   ]
+  },
+  {
+   "n": 28,
+   "tool": "place_furniture",
+   "note": "Upstairs furniture and fixtures.",
+   "args": {
+    "spec": {
+     "building": "Caroline",
+     "floor": "Lantai 2",
+     "base_z": 2.7432,
+     "items": [
+      {
+       "type": "bed",
+       "name": "Kasur Barat",
+       "at": [
+        2.5908,
+        1.1684
+       ],
+       "size": [
+        1.524,
+        2.032,
+        0.5588
+       ],
+       "rotation": 180
+      },
+      {
+       "type": "bed",
+       "name": "Kasur Timur",
+       "at": [
+        5.2324,
+        1.1684
+       ],
+       "size": [
+        1.524,
+        2.032,
+        0.5588
+       ],
+       "rotation": 180
+      },
+      {
+       "type": "bathtub",
+       "name": "Bathtub",
+       "at": [
+        0.508,
+        3.9878
+       ],
+       "size": [
+        0.762,
+        1.524,
+        0.508
+       ]
+      },
+      {
+       "type": "sink",
+       "name": "Wastafel Atas",
+       "at": [
+        1.9304,
+        3.5052
+       ],
+       "size": [
+        0.7112,
+        0.508,
+        0.8128
+       ],
+       "rotation": 180
+      },
+      {
+       "type": "toilet",
+       "name": "Kloset Atas",
+       "at": [
+        1.2954,
+        3.5814
+       ],
+       "size": [
+        0.4572,
+        0.7112,
+        0.762
+       ],
+       "rotation": 180
+      }
+     ]
+    }
+   },
+   "expect": [
+    "5 pieces placed in 'Lantai 2'"
+   ]
+  },
+  {
+   "n": 29,
+   "tool": "check_placement",
+   "note": "Stairs and furniture against doors and walls. Pintu UW-1 is the closet under the stairs, accepted as designed.",
+   "args": {
+    "building": "Caroline",
+    "accept": [
+     "Pintu UW-1"
+    ]
+   },
+   "expect": [
+    "PLACEMENT OK"
+   ]
+  },
+  {
+   "n": 30,
+   "tool": "add_slab",
+   "note": "Lawn at grade.",
+   "args": {
+    "spec": {
+     "kind": "tapak",
+     "name": "Halaman Rumput",
+     "top_z": -0.635,
+     "thickness": 0.1016,
+     "from": [
+      -76.2,
+      -76.2
+     ],
+     "to": [
+      83.82,
+      83.82
+     ],
+     "material": "Tapak - Rumput",
+     "color": [
+      91,
+      121,
+      61
+     ]
+    }
+   },
+   "expect": [
+    "Slab 'Halaman Rumput' (tapak) built in 'Tapak'"
+   ]
+  },
+  {
+   "n": 31,
+   "tool": "add_slab",
+   "note": "Front path to the steps.",
+   "args": {
+    "spec": {
+     "kind": "tapak",
+     "name": "Setapak Depan",
+     "top_z": -0.6096,
+     "thickness": 0.0254,
+     "from": [
+      5.4864,
+      -13.208
+     ],
+     "to": [
+      6.4008,
+      -2.286
+     ],
+     "material": "Tapak - Batu Setapak",
+     "color": [
+      225,
+      220,
+      205
+     ]
+    }
+   },
+   "expect": [
+    "Slab 'Setapak Depan'"
+   ]
+  },
+  {
+   "n": 32,
+   "tool": "add_plants",
+   "note": "Shrubs around the porch and a few trees (free placement, not on the drawings).",
+   "args": {
+    "spec": {
+     "base_z": -0.635,
+     "items": [
+      {
+       "type": "shrub",
+       "at": [
+        -0.9906,
+        -2.54
+       ],
+       "size": 1.1938
+      },
+      {
+       "type": "shrub",
+       "at": [
+        1.0414,
+        -2.4384
+       ],
+       "size": 1.3716
+      },
+      {
+       "type": "shrub",
+       "at": [
+        3.048,
+        -2.4638
+       ],
+       "size": 1.3462
+      },
+      {
+       "type": "shrub",
+       "at": [
+        7.62,
+        -2.413
+       ],
+       "size": 1.3208
+      },
+      {
+       "type": "shrub",
+       "at": [
+        9.652,
+        -2.54
+       ],
+       "size": 1.0922
+      },
+      {
+       "type": "shrub",
+       "at": [
+        -2.7686,
+        0.762
+       ],
+       "size": 1.3208
+      },
+      {
+       "type": "shrub",
+       "at": [
+        -2.794,
+        3.2766
+       ],
+       "size": 1.2954
+      },
+      {
+       "type": "shrub",
+       "at": [
+        10.1854,
+        1.524
+       ],
+       "size": 1.3208
+      },
+      {
+       "type": "shrub",
+       "at": [
+        8.4074,
+        6.35
+       ],
+       "size": 1.3208
+      },
+      {
+       "type": "tree",
+       "at": [
+        -8.4074,
+        6.6294
+       ],
+       "size": 4.572,
+       "height": 7.62
+      },
+      {
+       "type": "tree",
+       "at": [
+        -17.399,
+        2.286
+       ],
+       "size": 4.064,
+       "height": 6.604
+      },
+      {
+       "type": "tree",
+       "at": [
+        20.828,
+        19.05
+       ],
+       "size": 5.08,
+       "height": 8.128
+      },
+      {
+       "type": "tree",
+       "at": [
+        15.621,
+        -6.7564
+       ],
+       "size": 4.318,
+       "height": 7.112
+      },
+      {
+       "type": "tree",
+       "at": [
+        3.1496,
+        15.7734
+       ],
+       "size": 5.08,
+       "height": 8.636
+      },
+      {
+       "type": "tree",
+       "at": [
+        -13.1826,
+        16.2814
+       ],
+       "size": 4.826,
+       "height": 7.62
+      }
+     ]
+    }
+   },
+   "expect": [
+    "15 plants placed in 'Tapak'"
+   ]
+  },
+  {
+   "n": 33,
+   "tool": "eval_ruby",
+   "note": "House rules audit.",
+   "args": {
+    "code": "SU_MCP.audit_model"
+   },
+   "expect": [
+    "AUDIT OK"
+   ]
+  },
+  {
+   "n": 34,
+   "tool": "add_plan_view",
+   "note": "Dimensioned downstairs plan.",
+   "args": {
+    "spec": {
+     "name": "Denah Lantai 1",
+     "building": "Caroline",
+     "floor": "Lantai 1",
+     "set_units": false,
+     "rooms": [
+      {
+       "label": "Living Room",
+       "at": [
+        3.556,
+        2.286
+       ]
+      },
+      {
+       "label": "Kitchen",
+       "at": [
+        5.79,
+        6.35
+       ]
+      },
+      {
+       "label": "Side Room",
+       "at": [
+        -0.864,
+        3.302
+       ]
+      },
+      {
+       "label": "Bath",
+       "at": [
+        8.128,
+        1.524
+       ]
+      }
+     ]
+    }
+   },
+   "expect": [
+    "Plan view 'Denah Lantai 1' created"
+   ]
+  },
+  {
+   "n": 35,
+   "tool": "add_plan_view",
+   "note": "Dimensioned upstairs plan.",
+   "args": {
+    "spec": {
+     "name": "Denah Lantai 2",
+     "building": "Caroline",
+     "floor": "Lantai 2",
+     "base_z": 2.7432,
+     "set_units": false,
+     "rooms": [
+      {
+       "label": "Bedroom",
+       "at": [
+        1.778,
+        1.524
+       ]
+      },
+      {
+       "label": "Bedroom",
+       "at": [
+        5.588,
+        1.143
+       ]
+      },
+      {
+       "label": "Bath",
+       "at": [
+        1.143,
+        3.937
+       ]
+      },
+      {
+       "label": "Hall",
+       "at": [
+        4.318,
+        4.318
+       ]
+      }
+     ]
+    }
+   },
+   "expect": [
+    "Plan view 'Denah Lantai 2' created"
+   ]
+  },
+  {
+   "n": 36,
+   "tool": "add_scene",
+   "note": "Scene for the picture set.",
+   "args": {
+    "spec": {
+     "name": "Depan",
+     "eye": [
+      -8.382,
+      -11.938,
+      5.334
+     ],
+     "target": [
+      3.302,
+      1.524,
+      2.54
+     ]
+    }
+   },
+   "expect": [
+    "Scene 'Depan' saved"
+   ]
+  },
+  {
+   "n": 37,
+   "tool": "add_scene",
+   "note": "Scene for the picture set.",
+   "args": {
+    "spec": {
+     "name": "Belakang",
+     "eye": [
+      14.224,
+      19.304,
+      5.842
+     ],
+     "target": [
+      3.556,
+      4.064,
+      2.54
+     ]
+    }
+   },
+   "expect": [
+    "Scene 'Belakang' saved"
+   ]
+  },
+  {
+   "n": 38,
+   "tool": "add_scene",
+   "note": "Scene for the picture set.",
+   "args": {
+    "spec": {
+     "name": "Potongan Lantai 1",
+     "eye": [
+      1.016,
+      -6.604,
+      14.224
+     ],
+     "target": [
+      3.81,
+      3.048,
+      0.0
+     ],
+     "cut_z": 2.4384
+    }
+   },
+   "expect": [
+    "Scene 'Potongan Lantai 1' saved"
+   ]
+  },
+  {
+   "n": 39,
+   "tool": "add_scene",
+   "note": "Scene for the picture set.",
+   "args": {
+    "spec": {
+     "name": "Potongan Lantai 2",
+     "eye": [
+      1.524,
+      -5.842,
+      16.256
+     ],
+     "target": [
+      3.81,
+      2.286,
+      2.7432
+     ],
+     "cut_z": 4.9784
+    }
+   },
+   "expect": [
+    "Scene 'Potongan Lantai 2' saved"
+   ]
+  },
+  {
+   "n": 40,
+   "tool": "add_scene",
+   "note": "Scene for the picture set.",
+   "args": {
+    "spec": {
+     "name": "Tampak Selatan",
+     "eye": [
+      3.6576,
+      -22.86,
+      2.794
+     ],
+     "target": [
+      3.6576,
+      0.0,
+      2.794
+     ],
+     "height": 10.668,
+     "hide": [
+      "tapak"
+     ]
+    }
+   },
+   "expect": [
+    "Scene 'Tampak Selatan' saved"
+   ]
+  },
+  {
+   "n": 41,
+   "tool": "add_scene",
+   "note": "Scene for the picture set.",
+   "args": {
+    "spec": {
+     "name": "Tampak Utara",
+     "eye": [
+      3.6576,
+      33.02,
+      2.794
+     ],
+     "target": [
+      3.6576,
+      0.0,
+      2.794
+     ],
+     "height": 10.668,
+     "hide": [
+      "tapak"
+     ]
+    }
+   },
+   "expect": [
+    "Scene 'Tampak Utara' saved"
+   ]
+  },
+  {
+   "n": 42,
+   "tool": "export_views",
+   "note": "All pictures, last of all. Look at every one of them.",
+   "args": {},
+   "expect": [
+    "VIEWS EXPORTED. 9 scene(s)"
+   ]
+  }
+ ]
+}

@@ -18,7 +18,7 @@ Keduanya sekarang dijaga oleh tool: `check_placement` dan `export_views`.
 | 5 | Atap, tiang, papan dinding, lis jendela, tangga, perabot | `build_roof`, `add_posts`, `add_siding`, `add_window_trim`, `build_stairs`, `place_furniture` ([DETAIL.md](DETAIL.md)); sisanya (tapak, bentuk khusus) lewat `eval_ruby` dengan `SU_MCP.element` | Tiap jawaban dibaca, tanpa `WARNING` |
 | 6 | Cek tangga dan perabot | `check_placement` | `PLACEMENT OK` |
 | 7 | Cek aturan model | `SU_MCP.audit_model` | `AUDIT OK` |
-| 8 | Buat scene: denah, perspektif, potongan, tampak | `add_plan_view`, `eval_ruby` | Scene ada untuk setiap gambar yang mau ditunjukkan |
+| 8 | Buat scene: denah, perspektif, potongan, tampak | `add_plan_view`, `add_scene` | Scene ada untuk setiap gambar yang mau ditunjukkan |
 | 9 | Simpan model, lalu ekspor semua scene | `export_views` | `VIEWS EXPORTED` |
 | 10 | Buka dan lihat **setiap** gambar | (membaca gambar) | Tidak ada yang janggal |
 | 11 | Laporkan ke pengguna: akurasi, yang belum sesuai, lokasi gambar | | |
@@ -115,7 +115,7 @@ Lewat `eval_ruby`: `SU_MCP.export_views('scenes' => ['Depan'])` dan `SU_MCP.view
 
 ## Menyiapkan scene
 
-`export_views` hanya mengekspor scene yang ada. Set yang biasa dipakai:
+`export_views` hanya mengekspor scene yang ada. Denah dibuat dengan `add_plan_view`, yang lain dengan `add_scene` (lihat [DETAIL.md](DETAIL.md#add_scene)); kode Ruby di bawah hanya untuk hal yang tidak bisa dilakukan `add_scene`. Set yang biasa dipakai:
 
 | Scene | Kamera | Catatan |
 |---|---|---|
