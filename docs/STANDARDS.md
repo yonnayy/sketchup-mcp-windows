@@ -37,6 +37,7 @@ Rumah Contoh                 (wadah: tanpa tag, tanpa material)
 | `tangga` | `07-Tangga` | `Tangga - Beton` | Tangga, ramp, bordes |
 | `furnitur` | `08-Furnitur` | `Furnitur - Kayu` | Perabot dan perlengkapan |
 | `tapak` | `09-Tapak` | `Tapak - Rumput` | Tanah, jalan, taman, pagar tapak |
+| `anotasi` | `10-Anotasi <nama scene>` | (tidak ada) | Angka ukuran, nama ruang, bidang potong. Dibuat oleh `add_plan_view`, satu tag per tampak denah |
 
 Angka di depan nama tag membuat urutannya tetap di panel Tags. Kalau proyek butuh jenis elemen di luar daftar, pakai pola yang sama (`10-MEP`, `11-Fasad`) dan sebutkan ke pengguna; audit menerima tag berpola `NN-Nama`.
 
@@ -79,7 +80,7 @@ SU_MCP.audit_model
 Hasil yang benar:
 
 ```
-AUDIT OK. 23 elements and 2 containers checked. All rules satisfied.
+AUDIT OK. 27 elements and 2 containers checked. All rules satisfied.
 ```
 
 Kalau ada pelanggaran, setiap baris menyebut elemen dan masalahnya:
@@ -95,7 +96,7 @@ AUDIT FAILED. 25 elements and 1 containers checked. 7 problem(s):
 - Kolom salah: tag 'kolom' is not a standard tag
 ```
 
-Perbaiki elemen yang disebut, lalu jalankan audit lagi. Elemen di tag `00-Referensi` tidak diperiksa isinya, jadi figur skala bawaan template cukup dipindahkan ke tag itu:
+Perbaiki elemen yang disebut, lalu jalankan audit lagi. Elemen di tag `00-Referensi` dan `10-Anotasi ...` tidak diperiksa isinya, jadi figur skala bawaan template cukup dipindahkan ke tag itu:
 
 ```ruby
 figur = Sketchup.active_model.entities.grep(Sketchup::ComponentInstance).first

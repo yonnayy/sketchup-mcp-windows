@@ -29,11 +29,11 @@ SPEC = {
         {"id": "W5", "from": [4, 0], "to": [4, 5], "thickness": 0.1},
     ],
     "openings": [
-        {"wall": "W1", "type": "door", "offset": 1.0, "width": 0.9, "height": 2.1},
+        {"wall": "W1", "type": "door", "offset": 1.0, "width": 0.9, "height": 2.1, "hinge": "start", "swing": "left"},
         {"wall": "W1", "type": "window", "offset": 4.8, "width": 1.5, "sill": 0.9, "height": 1.2},
         {"wall": "W2", "type": "window", "offset": 1.5, "width": 2.0, "sill": 0.9, "height": 1.2},
         {"wall": "W3", "type": "window", "offset": 4.5, "width": 1.2, "sill": 1.5, "height": 0.6},
-        {"wall": "W5", "type": "door", "offset": 3.0, "width": 0.8, "height": 2.1},
+        {"wall": "W5", "type": "door", "offset": 3.0, "width": 0.8, "height": 2.1, "hinge": "end", "swing": "right"},
         {"wall": "W4", "type": "window", "offset": 1.5, "width": 2.0, "sill": 0.9, "height": 1.2},
     ],
     "slab": {"outline": [[0, 0], [7, 0], [7, 5], [0, 5]], "thickness": 0.12},
@@ -85,6 +85,47 @@ walk.call(rumah.entities)
 rows.join("\n")
 '''
 
+# Where the two open door leaves must be (world metres, x relative to OX):
+# W1: hinge at x=1.0 on the inside face (y=0.15), opened 90 degrees into the house.
+# W5: hinge at y=3.8 on the east face (x=4.05), opened 90 degrees into the east room.
+DOORS = r'''
+rumah = SU_MCP.container('MCP TEST')
+lantai = rumah.entities.grep(Sketchup::Group).find { |g| g.name == 'Lantai 1' }
+lantai.entities.grep(Sketchup::Group).select { |g| g.name.start_with?('Pintu') }.map do |g|
+  b = g.bounds
+  "%s x=%.2f..%.2f y=%.2f..%.2f" % [g.name, b.min.x.to_m - 50, b.max.x.to_m - 50, b.min.y.to_m, b.max.y.to_m]
+end.join("\n")
+'''
+
+PLAN = {
+    "name": "MCP TEST Denah",
+    "building": "MCP TEST",
+    "set_units": False,
+    "rooms": [
+        {"label": "Ruang barat", "at": [OX + 2, 3.4]},
+        {"label": "Ruang timur", "at": [OX + 5.5, 3.4]},
+    ],
+}
+
+PLAN_STATE = r'''
+m = Sketchup.active_model
+page = m.pages['MCP TEST Denah']
+plane = m.entities.active_section_plane
+view = m.active_view
+# The whole test house (x 50..57, y 0..5) must be inside the picture even
+# though the model may hold other buildings far away.
+framed = [[50, 0], [57, 0], [57, 5], [50, 5]].all? do |x, y|
+  s = view.screen_coords([x.m, y.m, 1.2.m])
+  s.x > 0 && s.x < view.vpwidth && s.y > 0 && s.y < view.vpheight
+end
+"scene=%s selected=%s perspective=%s cut=%s annotations=%d framed=%s" % [
+  !page.nil?, m.pages.selected_page == page, view.camera.perspective?,
+  plane ? plane.name : 'none',
+  m.entities.grep(Sketchup::Group).count { |g| g.name == 'Anotasi MCP TEST Denah' }, framed]
+'''
+
+PAGES_BEFORE = "Sketchup.active_model.pages.count.to_s"
+
 VIOLATIONS = r'''
 model = Sketchup.active_model
 model.start_operation('MCP TEST: pelanggaran', true)
@@ -97,11 +138,26 @@ report
 
 CLEANUP = r'''
 model = Sketchup.active_model
+had_pages = %d
 model.start_operation('MCP TEST: bersihkan', true)
-found = model.entities.grep(Sketchup::Group).select { |g| g.name == 'MCP TEST' }
+found = model.entities.grep(Sketchup::Group).select { |g| ['MCP TEST', 'Anotasi MCP TEST Denah'].include?(g.name) }
+found += model.entities.grep(Sketchup::SectionPlane).select { |s| s.name == 'MCP TEST Denah' }
+count = found.length
 found.each(&:erase!)
+page = model.pages['MCP TEST Denah']
+model.pages.erase(page) if page
+tag = model.layers['10-Anotasi MCP TEST Denah']
+model.layers.remove(tag) if tag
+if had_pages == 0
+  # The plan view added the "3D" scene itself; put the model back as it was.
+  three_d = model.pages['3D']
+  model.pages.selected_page = three_d if three_d
+  model.pages.erase(three_d) if three_d
+elsif model.pages['3D']
+  model.pages.selected_page = model.pages['3D']
+end
 model.commit_operation
-"removed #{found.length}"
+"removed #{count} objects, scenes left: #{model.pages.count}"
 '''
 
 
@@ -121,6 +177,7 @@ async def run() -> int:
         async with ClientSession(read, write) as session:
             await session.initialize()
             print("version :", await ruby(session, "Sketchup.version"))
+            pages_before = int(await ruby(session, PAGES_BEFORE))
             try:
                 built = text(await session.call_tool("build_floor_plan", {"spec": SPEC}))
                 print("build   :", built)
@@ -152,12 +209,25 @@ async def run() -> int:
                 assert bad.startswith("AUDIT FAILED") and "has no tag" in bad and "has no name" in bad, bad
                 print("audit catches violations: yes")
 
-                await ruby(session, "Sketchup.send_action('viewIso:'); 'ok'")
-                await ruby(session, "Sketchup.active_model.active_view.zoom_extents; 'ok'")
+                doors = await ruby(session, DOORS)
+                print(doors)
+                assert "Pintu W1-1 x=1.00..1.04 y=0.15..1.05" in doors, doors
+                assert "Pintu W5-1 x=4.05..4.85 y=3.76..3.80" in doors, doors
+
+                plan = json.loads(text(await session.call_tool("add_plan_view", {"spec": PLAN})))
+                made = plan["content"][0]["text"]
+                print("plan    :", made)
+                assert "6 dimensions" in made and "Outside size 7.000 x 5.000 m" in made, made
+                assert "Warnings" not in made, made
+                state = await ruby(session, PLAN_STATE)
+                print("scene   :", state)
+                assert state == "scene=true selected=true perspective=false cut=MCP TEST Denah annotations=1 framed=true", state
+                audit = await ruby(session, "SU_MCP.audit_model")
+                assert "MCP TEST" not in audit, audit
                 shot = json.loads(text(await session.call_tool("export_scene", {"format": "png"})))
                 print("png     :", shot["content"][0]["text"])
             finally:
-                print("cleanup :", await ruby(session, CLEANUP))
+                print("cleanup :", await ruby(session, CLEANUP % pages_before))
     print("OK")
     return 0
 

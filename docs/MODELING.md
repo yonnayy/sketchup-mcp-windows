@@ -15,7 +15,8 @@ Panduan untuk Claude saat diminta membuat model SketchUp dari denah.
 7. **Buat laporan akurasi** dengan `verify_dimensions`: ukuran luar dan ukuran bersih tiap ruang, dibandingkan dengan denah. Semua baris harus `OK`. Sampaikan laporan ini ke pengguna.
 8. **Tambahkan yang lain** (atap, kolom, tangga) lewat `eval_ruby` dengan `SU_MCP.element`, di dalam wadah bangunan yang sama.
 9. **Audit:** `SU_MCP.audit_model` harus menjawab `AUDIT OK`.
-10. **Lihat hasilnya** dengan `export_scene` format `png`, lalu perbaiki kalau ada yang salah (Ctrl+Z di SketchUp membatalkan satu langkah sekaligus).
+10. **Buat tampak denah berdimensi** dengan `add_plan_view`, ekspor ke `png`, dan tunjukkan ke pengguna supaya bisa dicocokkan dengan denah aslinya.
+11. **Lihat hasil 3D-nya** dengan `export_scene` format `png` di scene `3D`, lalu perbaiki kalau ada yang salah (Ctrl+Z di SketchUp membatalkan satu langkah sekaligus).
 
 Nilai umum kalau tidak disebutkan: tinggi dinding 3,0 m; tebal dinding bata 0,15 m, sekat 0,10 m; pintu 0,9 x 2,1 m; jendela lebar 1,2 m, ambang 0,9 m, tinggi 1,2 m; pelat lantai 0,12 m.
 
@@ -106,13 +107,16 @@ Semua angka dalam **meter**.
 | `openings[].offset` | Jarak dari titik `from` dinding ke tepi bukaan |
 | `openings[].sill` | Tinggi ambang. Tanpa `sill` (atau 0) berarti pintu; dengan `sill` berarti jendela |
 | `openings[].height` | Tinggi bukaan, diukur dari ambang |
-| `infill` | Bawaan `true`: tiap pintu diisi daun pintu 4 cm dan tiap jendela diisi kaca 1 cm. Isi `false` untuk lubang saja |
+| `openings[].hinge` | Pintu saja. Letak engsel: `"start"` (kusen yang lebih dekat ke titik `from` dinding) atau `"end"` (yang lebih dekat ke `to`) |
+| `openings[].swing` | Pintu saja. Ke sisi mana pintu terbuka: `"left"` atau `"right"` dinding, dilihat sambil berjalan dari `from` ke `to` |
+| `openings[].open` | Sudut bukaan daun pintu dalam derajat, bawaan `90` |
+| `infill` | Bawaan `true`: tiap pintu diisi daun pintu 4 cm dan tiap jendela diisi kaca 1 cm. Isi `false` untuk lubang saja. Pintu dengan `hinge`/`swing` digambar terbuka dengan busur ayun di lantai (`Ayun Pintu W1-1`); tanpa keduanya daun pintu digambar tertutup |
 | `slab.outline` | Titik keliling pelat lantai. Permukaan atas pelat ada di `base_z` |
 | `slab.material` | Material lain untuk pelat, misalnya `"Lantai - Kayu"` |
 
 Hasilnya mengikuti [STANDARDS.md](STANDARDS.md): satu grup per dinding (`Dinding W1`) di tag `01-Dinding`, daun pintu (`Pintu W1-1`) di `03-Pintu`, kaca jendela (`Jendela W1-1`) di `04-Jendela`, dan `Lantai` di `02-Lantai`, masing-masing dengan material bakunya. Setiap elemen adalah solid tertutup.
 
-Batasan: dinding lurus saja (dinding lengkung dipecah jadi beberapa segmen pendek), sambungan otomatis dihitung untuk dinding yang bertemu tegak lurus (pertemuan miring ditutup secara pendekatan), bukaan persegi, daun pintu dan kaca berupa panel polos tanpa kusen dan tanpa arah ayun, tidak membuat atap. Untuk itu pakai `eval_ruby`.
+Batasan: dinding lurus saja (dinding lengkung dipecah jadi beberapa segmen pendek), sambungan otomatis dihitung untuk dinding yang bertemu tegak lurus (pertemuan miring ditutup secara pendekatan), bukaan persegi, daun pintu dan kaca berupa panel polos tanpa kusen, tidak membuat atap. Untuk itu pakai `eval_ruby`.
 
 ## Laporan akurasi
 
@@ -135,6 +139,39 @@ SELISIH        Kamar tidur 1 (arah x): plan 3.000 m, model 2.800 m (-200 mm)
 ```
 
 Kalau ada `SELISIH`, cari penyebabnya (biasanya `ref` yang salah atau koordinat dinding), batalkan dengan Ctrl+Z atau hapus grup lantainya, bangun ulang, lalu ukur lagi. Kalau selisihnya memang berasal dari konflik di denah, tulis itu di laporan ke pengguna.
+
+## Tampak denah berdimensi
+
+Panggil `add_plan_view` setelah laporan akurasi. Hasilnya sebuah scene tampak atas (proyeksi paralel) yang memotong dinding 1,2 m di atas lantai, berisi dua ukuran luar, lebar dan panjang bersih tiap ruang, dan nama ruang. Angkanya dibaca dari model, sama seperti `verify_dimensions`.
+
+![Tampak denah berdimensi rumah contoh](contoh-denah.png)
+
+```json
+{
+  "name": "Denah Lantai 1",
+  "building": "Rumah Contoh",
+  "rooms": [
+    {"label": "Ruang Tamu", "at": [2.0, 2.5]},
+    {"label": "Kamar Tidur 1", "at": [1.5, 4.5]}
+  ]
+}
+```
+
+| Kunci | Arti |
+|---|---|
+| `name` | Nama scene. Memanggil lagi dengan nama yang sama mengganti yang lama |
+| `building`, `floor` | Membatasi dinding yang dihitung untuk ukuran luar (nama grup wadah bangunan dan lantai) |
+| `rooms[].at` | Satu titik di dalam tiap ruang, jangan menempel di dinding |
+| `base_z`, `cut_height` | Elevasi lantai dan tinggi potongan di atasnya (bawaan 0 dan 1,2 m). Untuk lantai 2: `base_z` 3.2 |
+| `set_units` | Bawaan `true`: satuan model diubah ke meter dengan 2 desimal supaya angka ukuran terbaca dalam meter. Isi `false` kalau satuan model tidak boleh diubah |
+
+Angka ukuran, nama ruang, dan bidang potong ada di tag tersendiri per denah (`10-Anotasi Denah Lantai 1`) dan hanya tampil di scene denah itu, jadi denah lantai 1 dan lantai 2 tidak saling menumpuk. Gambar dibingkai pada dinding bangunan yang diminta, bukan seluruh model. Scene `3D` dibuat otomatis untuk kembali ke tampilan 3D; figur skala (tag `00-Referensi`) disembunyikan di scene denah. Setelah `add_plan_view`, panggil `export_scene` dengan `format: "png"`, tunjukkan gambarnya ke pengguna, lalu kembali ke 3D dengan `eval_ruby`:
+
+```ruby
+m = Sketchup.active_model
+m.pages.selected_page = m.pages['3D']
+'ok'
+```
 
 ## Model contoh pertama
 
@@ -171,15 +208,15 @@ Panggil `build_floor_plan` dengan:
     {"id": "W8", "from": [4.5, 1.5], "to": [6, 1.5], "thickness": 0.1}
   ],
   "openings": [
-    {"wall": "W1", "type": "door", "offset": 1, "width": 0.9, "height": 2.1},
+    {"wall": "W1", "type": "door", "offset": 1, "width": 0.9, "height": 2.1, "hinge": "start", "swing": "left"},
     {"wall": "W1", "type": "window", "offset": 2.4, "width": 1.5, "sill": 0.9, "height": 1.2},
-    {"wall": "W5", "type": "door", "offset": 1.9, "width": 0.8, "height": 2.1},
-    {"wall": "W5", "type": "door", "offset": 3.3, "width": 0.8, "height": 2.1},
+    {"wall": "W5", "type": "door", "offset": 1.9, "width": 0.8, "height": 2.1, "hinge": "end", "swing": "left"},
+    {"wall": "W5", "type": "door", "offset": 3.3, "width": 0.8, "height": 2.1, "hinge": "start", "swing": "left"},
     {"wall": "W4", "type": "window", "offset": 0.9, "width": 1.2, "sill": 0.9, "height": 1.2},
     {"wall": "W4", "type": "window", "offset": 3.8, "width": 1.4, "sill": 0.9, "height": 1.2},
     {"wall": "W2", "type": "window", "offset": 3.9, "width": 1.2, "sill": 0.9, "height": 1.2},
     {"wall": "W2", "type": "window", "offset": 0.5, "width": 0.5, "sill": 1.6, "height": 0.4},
-    {"wall": "W7", "type": "door", "offset": 0.4, "width": 0.7, "height": 2},
+    {"wall": "W7", "type": "door", "offset": 0.4, "width": 0.7, "height": 2, "hinge": "end", "swing": "right"},
     {"wall": "W3", "type": "window", "offset": 0.9, "width": 1.2, "sill": 0.9, "height": 1.2},
     {"wall": "W3", "type": "window", "offset": 3.9, "width": 1.2, "sill": 0.9, "height": 1.2}
   ],
@@ -188,6 +225,8 @@ Panggil `build_floor_plan` dengan:
 ```
 
 Jawaban yang benar: `Built 'Lantai 1': 8 walls, 4 doors, 7 windows, 1 slab. Size 6.0 x 6.0 x 3.12 m (x, y, z).`
+
+Arah bukaan pintu di sini: pintu depan (W1) terbuka ke dalam rumah, dua pintu kamar (W5) terbuka ke dalam kamar dengan engsel di sisi sekat tengah, dan pintu kamar mandi (W7) terbuka ke dalam kamar mandi.
 
 ### Langkah 3: laporan akurasi
 
@@ -235,9 +274,28 @@ model.commit_operation
 SU_MCP.audit_model
 ```
 
-Jawaban yang benar: `AUDIT OK. 23 elements and 2 containers checked. All rules satisfied.`
+Jawaban yang benar: `AUDIT OK. 27 elements and 2 containers checked. All rules satisfied.`
 
-### Langkah 5: lihat hasilnya
+### Langkah 5: tampak denah berdimensi
+
+Panggil `add_plan_view` dengan:
+
+```json
+{
+  "name": "Denah Lantai 1",
+  "building": "Rumah Contoh",
+  "rooms": [
+    {"label": "Ruang Tamu", "at": [2.0, 2.5]},
+    {"label": "Kamar Tidur 1", "at": [1.5, 4.5]},
+    {"label": "Kamar Tidur 2", "at": [4.5, 4.5]},
+    {"label": "KM", "at": [5.2, 0.75]}
+  ]
+}
+```
+
+Jawaban yang benar diawali `Plan view 'Denah Lantai 1' created` dan menyebut `10 dimensions` serta `Outside size 6.000 x 6.000 m`. Panggil `export_scene` dengan `format: "png"`: gambarnya harus seperti gambar denah di bagian [Tampak denah berdimensi](#tampak-denah-berdimensi). Lalu kembali ke scene `3D` dengan kode di bagian itu.
+
+### Langkah 6: lihat hasil 3D
 
 Atur sudut pandang dengan satu panggilan `eval_ruby`:
 

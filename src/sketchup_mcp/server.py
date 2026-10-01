@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger("SketchupMCPServer")
 
 # Define version directly to avoid pkg_resources dependency
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 logger.info(f"SketchupMCP Server version {__version__} starting up")
 
 @dataclass
@@ -275,7 +275,8 @@ mcp = FastMCP(
         "Accuracy workflow for a dimensioned plan: 1) check_dimension_chains on every dimension string and "
         "settle conflicts with the user BEFORE modelling; 2) build_floor_plan, giving each wall the reference "
         "the plan dimensions are measured to (ref center/left/right); 3) verify_dimensions against the plan "
-        "and report the result to the user. "
+        "and report the result to the user; 4) add_plan_view for a dimensioned plan drawing the user can "
+        "compare with the original. "
         "Check your work with export_scene(format='png') and look at the image."
     ),
     lifespan=server_lifespan
@@ -482,6 +483,11 @@ def build_floor_plan(
     An opening with no "sill" (or sill 0) is a door; with a sill it is a window.
     Doors get a 4 cm leaf and windows a 1 cm glass pane ("infill": false for
     plain holes). Walls and slab accept "material": "Dinding - Bata Ekspos".
+    Door swing: add "hinge": "start" | "end" (the jamb nearer the wall's
+    `from` or `to`) and "swing": "left" | "right" (the side of the wall it
+    opens into, as seen walking from `from` to `to`). The leaf is then drawn
+    open ("open": degrees, default 90) with its swing arc on the floor.
+    Without hinge/swing the leaf is drawn closed.
     "ref" on a wall says what its from/to line is: "center" (centreline,
     the default), "left" or "right" (that face of the wall, as seen walking
     from `from` to `to`; the wall body lies on the other side). Use the one
@@ -595,6 +601,48 @@ def verify_dimensions(
         return json.dumps(result)
     except Exception as e:
         return f"Error verifying dimensions: {str(e)}"
+
+@mcp.tool()
+def add_plan_view(
+    ctx: Context,
+    spec: Dict[str, Any]
+) -> str:
+    """Create a dimensioned plan drawing of the built floor as a SketchUp scene.
+
+    spec = {
+      "name": "Denah Lantai 1",        # scene name
+      "building": "Rumah A",           # optional: only this building's walls
+      "floor": "Lantai 1",             # optional: only this floor's walls
+      "base_z": 0,                     # floor level
+      "cut_height": 1.2,               # horizontal cut above the floor
+      "rooms": [                       # one point inside each room
+        {"label": "Kamar Tidur 1", "at": [1.5, 4.5]},
+        {"label": "Ruang Tamu", "at": [2.0, 2.5]}
+      ]
+    }
+    Result: a top view in parallel projection, cut through the walls, with the
+    two outside dimensions, the clear width and depth of every room (measured
+    from the model, like verify_dimensions) and the room names. Annotations go
+    on a tag of their own ("10-Anotasi <name>") and show only in this scene;
+    the picture is framed on the requested building. A scene "3D" is added to
+    go back. Model units are switched to metres with 2 decimals ("set_units":
+    false keeps them). Calling it again with the same name replaces it.
+    Follow with export_scene(format="png") and show the drawing to the user so
+    they can compare it with the original plan.
+    """
+    try:
+        sketchup = get_sketchup_connection()
+        result = sketchup.send_command(
+            method="tools/call",
+            params={
+                "name": "add_plan_view",
+                "arguments": {"spec": spec}
+            },
+            request_id=ctx.request_id
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return f"Error creating plan view: {str(e)}"
 
 @mcp.tool()
 def eval_ruby(

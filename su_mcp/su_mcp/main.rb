@@ -30,7 +30,8 @@ module SU_MCP
       'struktur'  => ['06-Struktur', 'Struktur - Beton', [170, 170, 170], 1.0],
       'tangga'    => ['07-Tangga', 'Tangga - Beton', [170, 170, 170], 1.0],
       'furnitur'  => ['08-Furnitur', 'Furnitur - Kayu', [180, 140, 100], 1.0],
-      'tapak'     => ['09-Tapak', 'Tapak - Rumput', [120, 160, 90], 1.0]
+      'tapak'     => ['09-Tapak', 'Tapak - Rumput', [120, 160, 90], 1.0],
+      'anotasi'   => ['10-Anotasi', nil, nil, 1.0]
     }.freeze
     MATERIAL_NAME = /\A\S.* - \S/.freeze
     CUSTOM_TAG = /\A\d\d-\S/.freeze
@@ -106,7 +107,7 @@ module SU_MCP
       return "AUDIT FAILED. No model is open." unless model
       untagged = model.layers[0]
       standard_tags = TABLE.values.map { |r| r[0] }
-      reference_tag = TABLE['referensi'][0]
+      unchecked_tags = [TABLE['referensi'][0], TABLE['anotasi'][0]]
       problems = []
       elements = 0
       containers = 0
@@ -122,7 +123,8 @@ module SU_MCP
           name = e.definition.name.to_s if name.empty? && e.is_a?(Sketchup::ComponentInstance)
           label = (path + [name.empty? ? "(unnamed ##{e.entityID})" : name]).join(' > ')
           problems << "#{label}: has no name" if name.empty?
-          next if e.layer.name == reference_tag
+          # Reference objects and plan annotations ("10-Anotasi <scene>") are not building elements.
+          next if unchecked_tags.any? { |t| e.layer.name == t || e.layer.name.start_with?("#{TABLE['anotasi'][0]} ") }
 
           raw = inner.select { |x| x.is_a?(Sketchup::Face) || x.is_a?(Sketchup::Edge) }
           mat = e.material || inherited
@@ -295,6 +297,176 @@ module SU_MCP
 
   def self.verify_dimensions(checks, tolerance = nil)
     Verify.report(checks, tolerance)
+  end
+
+  # Dimensioned plan view: a top-down scene cut through the walls, with the
+  # overall and clear room dimensions drawn in. See docs/MODELING.md.
+  module Plan
+    # Outside extent of the walls in metres: [xmin, xmax, ymin, ymax].
+    def self.wall_box(model, building, floor)
+      box = nil
+      walk = lambda do |entities, tr, names|
+        entities.each do |e|
+          next unless e.is_a?(Sketchup::Group) || e.is_a?(Sketchup::ComponentInstance)
+          here = names + [e.name.to_s]
+          if e.layer.name == Verify::WALL_TAG
+            next if building && !here.include?(building.to_s)
+            next if floor && !here.include?(floor.to_s)
+            8.times do |i|
+              c = e.bounds.corner(i).transform(tr)
+              x = c.x.to_f.to_m
+              y = c.y.to_f.to_m
+              box ||= [x, x, y, y]
+              box[0] = x if x < box[0]
+              box[1] = x if x > box[1]
+              box[2] = y if y < box[2]
+              box[3] = y if y > box[3]
+            end
+          else
+            inner = e.is_a?(Sketchup::Group) ? e.entities : e.definition.entities
+            walk.call(inner, tr * e.transformation, here)
+          end
+        end
+      end
+      walk.call(model.entities, Geom::Transformation.new, [])
+      box
+    end
+
+    # Distance in metres from [x, y] to the nearest wall face along angle.
+    def self.reach(model, x, y, z, angle)
+      dir = Geom::Vector3d.new(Math.cos(angle), Math.sin(angle), 0)
+      best = nil
+      Verify::RAY_HEIGHTS.each do |h|
+        d = Verify.wall_hit(model, Geom::Point3d.new(x.to_f.m, y.to_f.m, (z.to_f + h).m), dir)
+        best = d if d && (best.nil? || d < best)
+      end
+      best ? best.to_m : nil
+    end
+
+    def self.build(spec)
+      model = Sketchup.active_model
+      raise "No model is open in SketchUp" unless model
+      name = (spec["name"] || "Denah").to_s
+      base_z = (spec["base_z"] || 0).to_f
+      cut = base_z + (spec["cut_height"] || 1.2).to_f
+      building = spec["building"]
+      floor = spec["floor"]
+      rooms = spec["rooms"] || []
+      box = wall_box(model, building, floor)
+      raise "No walls found (tag #{Verify::WALL_TAG}); build the floor plan first" unless box
+      xmin, xmax, ymin, ymax = box
+      warnings = []
+      dims = 0
+
+      model.start_operation("MCP: #{name}", true)
+      begin
+        unless spec.key?("set_units") && !spec["set_units"]
+          units = model.options["UnitsOptions"]
+          units["LengthFormat"] = 0     # decimal
+          units["LengthUnit"] = 4       # metres
+          units["LengthPrecision"] = 2
+        end
+
+        # Replace an earlier plan view of the same name.
+        model.entities.grep(Sketchup::Group).select { |g| g.name == "Anotasi #{name}" }.each(&:erase!)
+        model.entities.grep(Sketchup::SectionPlane).select { |s| s.name == name }.each(&:erase!)
+        old_page = model.pages[name]
+        model.pages.erase(old_page) if old_page
+
+        # Scenes switch at once, so a screenshot taken right after is not mid-animation.
+        model.options["PageOptions"]["ShowTransition"] = false
+
+        # A scene to come back to, saved before anything is cut or hidden.
+        if model.pages.count == 0
+          model.entities.active_section_plane = nil
+          model.pages.add("3D")
+        end
+
+        # Every plan view gets a tag of its own ("10-Anotasi <name>"), so each
+        # scene can show its own dimensions and hide those of the other plans.
+        annotation = model.layers.add("#{Standards::TABLE['anotasi'][0]} #{name}")
+        previous_layer = model.active_layer
+        model.active_layer = model.layers[0]
+        notes = model.entities.add_group
+        notes.name = "Anotasi #{name}"
+        model.active_layer = previous_layer
+
+        z = cut.m
+        begin
+          ents = notes.entities
+          gap = 0.8.m
+          ents.add_dimension_linear([xmin.m, ymin.m, z], [xmax.m, ymin.m, z], [0, -gap, 0])
+          ents.add_dimension_linear([xmin.m, ymin.m, z], [xmin.m, ymax.m, z], [-gap, 0, 0])
+          dims += 2
+          rooms.each do |room|
+            label = (room["label"] || room["name"] || "Ruang").to_s
+            x, y = room["at"]
+            west = reach(model, x, y, base_z, Math::PI)
+            east = reach(model, x, y, base_z, 0.0)
+            south = reach(model, x, y, base_z, -Math::PI / 2)
+            north = reach(model, x, y, base_z, Math::PI / 2)
+            unless west && east && south && north
+              warnings << "#{label}: no wall found on every side of #{room["at"].inspect}, not dimensioned"
+              next
+            end
+            # Dimension lines sit a third of the way into the room so the two
+            # of them and the room name do not land on top of each other.
+            y_line = y.to_f - south + (south + north) / 3.0
+            x_line = x.to_f - west + (west + east) / 3.0
+            ents.add_dimension_linear([(x - west).m, y_line.m, z], [(x + east).m, y_line.m, z], [0, 0.01.m, 0])
+            ents.add_dimension_linear([x_line.m, (y - south).m, z], [x_line.m, (y + north).m, z], [0.01.m, 0, 0])
+            dims += 2
+            cx = x.to_f - west + (west + east) * 0.62
+            cy = y.to_f - south + (south + north) * 0.68
+            ents.add_text(label, [cx.m, cy.m, z])
+          end
+        end
+
+        notes.layer = annotation
+        prefix = Standards::TABLE['anotasi'][0]
+        model.layers.each { |l| l.visible = (l == annotation) if l.name.start_with?(prefix) }
+        plane = model.entities.add_section_plane([Geom::Point3d.new(0, 0, z), Geom::Vector3d.new(0, 0, -1)])
+        plane.name = name
+        plane.layer = annotation
+        plane.activate
+        model.rendering_options["DisplaySectionPlanes"] = false
+
+        cx = (xmin + xmax) / 2.0
+        cy = (ymin + ymax) / 2.0
+        camera = Sketchup::Camera.new([cx.m, cy.m, (cut + 30).m], [cx.m, cy.m, 0], Y_AXIS)
+        camera.perspective = false
+        # Frame the walls that were asked for (plus room for the outside
+        # dimensions), not the whole model: other buildings must not push the
+        # plan out of the picture. export_scene renders 16:9, so fit both shapes.
+        view = model.active_view
+        aspect = [view.vpwidth.to_f / view.vpheight, 16.0 / 9].min
+        margin = 3.0
+        camera.height = [(ymax - ymin) + margin, ((xmax - xmin) + margin) / aspect].max.m
+        view.camera = camera
+        # The scale figure and other reference objects do not belong on a plan.
+        reference = model.layers[Standards::TABLE['referensi'][0]]
+        reference.visible = false if reference
+        page = model.pages.add(name)
+
+        # Dimensions and the cut belong to the plan scene only.
+        model.pages.each { |p| p.set_visibility(annotation, false) unless p == page }
+        model.commit_operation
+      rescue StandardError
+        model.abort_operation
+        raise
+      end
+
+      summary = "Plan view '#{name}' created: scene '#{name}' (top view, parallel projection, cut #{(cut - base_z).round(2)} m " \
+                "above the floor) with #{dims} dimensions on tag '#{Standards::TABLE['anotasi'][0]} #{name}'. " \
+                "Outside size #{format('%.3f', xmax - xmin)} x #{format('%.3f', ymax - ymin)} m. " \
+                "Scene '3D' returns to the 3D view. Look at it with export_scene(format='png')."
+      summary += " Warnings: " + warnings.join("; ") unless warnings.empty?
+      summary
+    end
+  end
+
+  def self.plan_view(spec)
+    Plan.build(spec)
   end
 
   def self.tag(kind)
@@ -580,6 +752,8 @@ module SU_MCP
           build_floor_plan(args)
         when "verify_dimensions"
           verify_dimensions(args)
+        when "add_plan_view"
+          add_plan_view(args)
         when "eval_ruby"
           eval_ruby(args)
         else
@@ -2318,7 +2492,7 @@ module SU_MCP
             elsif top > h - 0.02
               warnings << "#{label}: top (#{top} m) reaches the wall height (#{h} m), skipped"
             elsif sill <= 0.001
-              doors << [x0, x1, top]
+              doors << [x0, x1, top, o]
             else
               windows << [x0, x1, sill, top]
             end
@@ -2342,7 +2516,7 @@ module SU_MCP
             y = y_near.m
             pt = lambda { |x, z| Geom::Point3d.new(x.m, y, z.m) }
             outline = [pt.call(x_min, 0)]
-            doors.each do |x0, x1, top|
+            doors.each do |x0, x1, top, _o|
               outline << pt.call(x0, 0) << pt.call(x0, top) << pt.call(x1, top) << pt.call(x1, 0)
             end
             outline << pt.call(x_max, 0) << pt.call(x_max, h) << pt.call(x_min, h)
@@ -2364,11 +2538,45 @@ module SU_MCP
           group.transform!(placement)
           wall_count += 1
 
-          doors.each_with_index do |(x0, x1, top), n|
+          doors.each_with_index do |(x0, x1, top, o), n|
             door_count += 1
             next unless infill
-            leaf = Standards.element("Pintu #{id}-#{n + 1}", :pintu, root) { |ents| panel.call(ents, x0, x1, 0, top, y_mid, 0.04) }
-            leaf.transform!(placement)
+            hinge = o["hinge"].to_s
+            swing = o["swing"].to_s
+            if !hinge.empty? || !swing.empty?
+              hinge = "start" if hinge.empty?
+              swing = "left" if swing.empty?
+              unless %w[start end].include?(hinge) && %w[left right].include?(swing)
+                warnings << "door on #{id} at #{x0}: hinge must be start/end and swing left/right; drawn closed"
+                hinge = swing = ""
+              end
+            end
+            if hinge.empty?
+              # No swing given: a closed leaf in the middle of the wall.
+              leaf = Standards.element("Pintu #{id}-#{n + 1}", :pintu, root) { |ents| panel.call(ents, x0, x1, 0, top, y_mid, 0.04) }
+              leaf.transform!(placement)
+              next
+            end
+
+            # The leaf is hinged on the jamb nearer `from` (start) or `to` (end),
+            # on the wall face of the side it opens to, and drawn open.
+            at_start = hinge == "start"
+            to_left = swing == "left"
+            width = x1 - x0
+            open = (o["open"] || 90).to_f
+            closed_angle = at_start ? 0.0 : 180.0
+            turn = at_start == to_left ? open : -open
+            pivot = placement * Geom::Transformation.new(Geom::Point3d.new((at_start ? x0 : x1).m, (to_left ? y_far : y_near).m, 0))
+            leaf = Standards.element("Pintu #{id}-#{n + 1}", :pintu, root) do |ents|
+              panel.call(ents, 0, width, 0, top, at_start == to_left ? -0.02 : 0.02, 0.04)
+            end
+            leaf.transform!(pivot * Geom::Transformation.rotation(ORIGIN, Z_AXIS, (closed_angle + turn).degrees))
+            # Swing arc on the floor, the way a plan shows a door.
+            angles = [closed_angle, closed_angle + turn].sort.map(&:degrees)
+            arc = Standards.element("Ayun Pintu #{id}-#{n + 1}", :pintu, root) do |ents|
+              ents.add_arc(Geom::Point3d.new(0, 0, 0.005.m), X_AXIS, Z_AXIS, width.m, angles[0], angles[1], 16)
+            end
+            arc.transform!(pivot)
           end
           cut_windows.each_with_index do |(x0, x1, sill, top), n|
             window_count += 1
@@ -2413,6 +2621,13 @@ module SU_MCP
                 "then SU_MCP.audit_model after adding anything else."
       summary += " Warnings: " + warnings.join("; ") unless warnings.empty?
       { success: true, id: root.entityID, result: summary }
+    end
+
+    # Dimensioned top-view scene of the built plan.
+    def add_plan_view(params)
+      spec = params["spec"] || params
+      spec = JSON.parse(spec) if spec.is_a?(String)
+      { success: true, result: Plan.build(spec) }
     end
 
     # Measure the model and compare with the dimensions on the plan.

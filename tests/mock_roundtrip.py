@@ -76,7 +76,7 @@ async def run() -> int:
             await session.initialize()
             tools = sorted(t.name for t in (await session.list_tools()).tools)
             print("tools:", tools)
-            expected = ["build_floor_plan", "check_dimension_chains", "create_component", "delete_component", "eval_ruby",
+            expected = ["add_plan_view", "build_floor_plan", "check_dimension_chains", "create_component", "delete_component", "eval_ruby",
                         "export_scene", "get_selection", "set_material",
                         "transform_component", "verify_dimensions"]
             assert tools == expected, tools
