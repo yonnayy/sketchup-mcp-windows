@@ -71,10 +71,32 @@ if (Test-Path $uvExe) {
     if ($toolDir) { $serverPy = Join-Path $toolDir.Trim() 'sketchup-mcp\Lib\site-packages\sketchup_mcp\server.py' }
 }
 if ($serverPy -and (Test-Path $serverPy)) {
-    if ([System.IO.File]::ReadAllText($serverPy) -match 'def build_floor_plan') {
+    $serverText = [System.IO.File]::ReadAllText($serverPy)
+    if ($serverText -match 'def build_floor_plan') {
         Pass 'Installed server has the build_floor_plan tool'
     } else {
         Fail 'Installed server is an old build (no build_floor_plan tool)' 'Run install.ps1 again, then quit and reopen Claude Desktop.'
+    }
+    # Compare with the newest version: this repo when run from a checkout, GitHub otherwise.
+    $installed = if ($serverText -match '__version__ = "([^"]+)"') { $Matches[1] } else { $null }
+    $latest = $null
+    $project = if ($PSScriptRoot) { Join-Path $PSScriptRoot 'pyproject.toml' } else { $null }
+    try {
+        if ($project -and (Test-Path $project)) {
+            $projectText = [System.IO.File]::ReadAllText($project)
+        } else {
+            $projectText = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 'https://raw.githubusercontent.com/yonnayy/sketchup-mcp-windows/main/pyproject.toml').Content
+        }
+        if ($projectText -match '(?m)^version = "([^"]+)"') { $latest = $Matches[1] }
+    } catch { }
+    if ($installed -and $latest) {
+        if ($installed -eq $latest) {
+            Pass "Installed server is version $installed (the newest)"
+        } else {
+            Fail "Installed server is version $installed, the newest is $latest" 'Run install.ps1 again, then quit Claude Desktop from the tray icon and reopen it.'
+        }
+    } elseif ($installed) {
+        Info "Installed server version: $installed (could not look up the newest version)"
     }
 } else {
     Fail 'Installed server package not found (uv tool "sketchup-mcp")' 'Run install.ps1.'
