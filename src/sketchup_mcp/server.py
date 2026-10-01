@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger("SketchupMCPServer")
 
 # Define version directly to avoid pkg_resources dependency
-__version__ = "0.1.17"
+__version__ = "0.2.0"
 logger.info(f"SketchupMCP Server version {__version__} starting up")
 
 @dataclass
@@ -259,7 +259,16 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
 # Create MCP server with lifespan support
 mcp = FastMCP(
     "SketchupMCP",
-    instructions="Sketchup integration through the Model Context Protocol",
+    instructions=(
+        "Controls a running SketchUp instance on this machine. "
+        "To model a building from a floor plan use build_floor_plan (metres). "
+        "For anything else beyond a primitive box, use eval_ruby with the SketchUp Ruby API. "
+        "SketchUp's internal unit is the INCH: always write lengths as 3.m, 150.mm, 15.cm. "
+        "Wrap edits in model.start_operation(name, true) / model.commit_operation so the user can undo in one step. "
+        "A face drawn at z=0 gets a downward normal: call face.reverse! if face.normal.z < 0 before pushpull. "
+        "Put each building element in its own group. "
+        "Check your work with export_scene(format='png') and look at the image."
+    ),
     lifespan=server_lifespan
 )
 
@@ -271,7 +280,14 @@ def create_component(
     position: List[float] = None,
     dimensions: List[float] = None
 ) -> str:
-    """Create a new component in Sketchup"""
+    """Create a primitive (type: cube, cylinder, sphere, cone) as a group.
+
+    position and dimensions are in INCHES (SketchUp's internal unit).
+    For a cylinder, position is the corner of its bounding box (not the
+    centre) and dimensions are [diameter, ignored, height].
+    A cube placed at z=0 extrudes DOWNWARD (z from -height to 0).
+    For real modelling work prefer eval_ruby.
+    """
     try:
         logger.info(f"create_component called with type={type}, position={position}, dimensions={dimensions}, request_id={ctx.request_id}")
         
@@ -328,7 +344,11 @@ def transform_component(
     rotation: List[float] = None,
     scale: List[float] = None
 ) -> str:
-    """Transform a component's position, rotation, or scale"""
+    """Move, rotate or scale an entity by ID.
+
+    position is a RELATIVE translation in inches (it is added to the
+    current position, it is not an absolute target). rotation is in degrees.
+    """
     try:
         sketchup = get_sketchup_connection()
         arguments = {"id": id}
@@ -353,7 +373,7 @@ def transform_component(
 
 @mcp.tool()
 def get_selection(ctx: Context) -> str:
-    """Get currently selected components"""
+    """List the entities the user currently has selected in SketchUp (id, type, bounds)."""
     try:
         sketchup = get_sketchup_connection()
         result = sketchup.send_command(
@@ -374,7 +394,12 @@ def set_material(
     id: str,
     material: str
 ) -> str:
-    """Set material for a component"""
+    """Paint an entity with a named colour.
+
+    Supported names: red, green, blue, yellow, cyan, magenta, white, black,
+    brown, orange, gray. For any other colour use eval_ruby with
+    Sketchup::Color.new(r, g, b).
+    """
     try:
         sketchup = get_sketchup_connection()
         result = sketchup.send_command(
@@ -397,7 +422,12 @@ def export_scene(
     ctx: Context,
     format: str = "skp"
 ) -> str:
-    """Export the current scene"""
+    """Export the current model. format: png, jpg, skp, obj, dae, stl.
+
+    The file is written to %TEMP%\sketchup_exports and its full path is
+    returned in content[0].text. Use format='png' to get a screenshot of the
+    current view so you can check the model visually.
+    """
     try:
         sketchup = get_sketchup_connection()
         result = sketchup.send_command(
@@ -415,143 +445,68 @@ def export_scene(
         return f"Error exporting scene: {str(e)}"
 
 @mcp.tool()
-def create_mortise_tenon(
+def build_floor_plan(
     ctx: Context,
-    mortise_id: str,
-    tenon_id: str,
-    width: float = 1.0,
-    height: float = 1.0,
-    depth: float = 1.0,
-    offset_x: float = 0.0,
-    offset_y: float = 0.0,
-    offset_z: float = 0.0
+    spec: Dict[str, Any]
 ) -> str:
-    """Create a mortise and tenon joint between two components"""
-    try:
-        logger.info(f"create_mortise_tenon called with mortise_id={mortise_id}, tenon_id={tenon_id}, width={width}, height={height}, depth={depth}, offsets=({offset_x}, {offset_y}, {offset_z})")
-        
-        sketchup = get_sketchup_connection()
-        
-        result = sketchup.send_command(
-            method="tools/call",
-            params={
-                "name": "create_mortise_tenon",
-                "arguments": {
-                    "mortise_id": mortise_id,
-                    "tenon_id": tenon_id,
-                    "width": width,
-                    "height": height,
-                    "depth": depth,
-                    "offset_x": offset_x,
-                    "offset_y": offset_y,
-                    "offset_z": offset_z
-                }
-            },
-            request_id=ctx.request_id
-        )
-        
-        logger.info(f"create_mortise_tenon result: {result}")
-        return json.dumps(result)
-    except Exception as e:
-        logger.error(f"Error in create_mortise_tenon: {str(e)}")
-        return f"Error creating mortise and tenon joint: {str(e)}"
+    """Turn a floor plan into 3D walls with door/window openings and a floor slab.
 
-@mcp.tool()
-def create_dovetail(
-    ctx: Context,
-    tail_id: str,
-    pin_id: str,
-    width: float = 1.0,
-    height: float = 1.0,
-    depth: float = 1.0,
-    angle: float = 15.0,
-    num_tails: int = 3,
-    offset_x: float = 0.0,
-    offset_y: float = 0.0,
-    offset_z: float = 0.0
-) -> str:
-    """Create a dovetail joint between two components"""
+    All numbers are METRES. Coordinates are [x, y] on the ground plane.
+    spec = {
+      "name": "Lantai 1",            # name of the resulting group
+      "wall_height": 3.0,            # default height
+      "wall_thickness": 0.15,        # default thickness
+      "base_z": 0,                   # floor level (use 3.2 etc. for upper floors)
+      "walls": [                     # centrelines
+        {"id": "W1", "from": [0, 0], "to": [6, 0]},
+        {"id": "W2", "from": [6, 0], "to": [6, 4], "thickness": 0.1, "height": 2.8}
+      ],
+      "openings": [                  # offset = distance from the wall's "from"
+        {"wall": "W1", "type": "door",   "offset": 1.0, "width": 0.9, "height": 2.1},
+        {"wall": "W2", "type": "window", "offset": 1.2, "width": 1.5, "sill": 0.9, "height": 1.2}
+      ],
+      "slab": {"outline": [[0, 0], [6, 0], [6, 4], [0, 4]], "thickness": 0.12}
+    }
+    An opening with no "sill" (or sill 0) is a door; with a sill it is a window.
+    Wall ends are extended by half the thickness so corners close; pass
+    "extend": false on a wall to switch that off.
+    The whole plan is one undo step. The reply reports the built size and any
+    opening that was skipped (for example because it does not fit the wall):
+    read it, then verify with export_scene(format="png").
+    """
     try:
-        logger.info(f"create_dovetail called with tail_id={tail_id}, pin_id={pin_id}, width={width}, height={height}, depth={depth}, angle={angle}, num_tails={num_tails}")
-        
         sketchup = get_sketchup_connection()
-        
         result = sketchup.send_command(
             method="tools/call",
             params={
-                "name": "create_dovetail",
-                "arguments": {
-                    "tail_id": tail_id,
-                    "pin_id": pin_id,
-                    "width": width,
-                    "height": height,
-                    "depth": depth,
-                    "angle": angle,
-                    "num_tails": num_tails,
-                    "offset_x": offset_x,
-                    "offset_y": offset_y,
-                    "offset_z": offset_z
-                }
+                "name": "build_floor_plan",
+                "arguments": {"spec": spec}
             },
             request_id=ctx.request_id
         )
-        
-        logger.info(f"create_dovetail result: {result}")
         return json.dumps(result)
     except Exception as e:
-        logger.error(f"Error in create_dovetail: {str(e)}")
-        return f"Error creating dovetail joint: {str(e)}"
-
-@mcp.tool()
-def create_finger_joint(
-    ctx: Context,
-    board1_id: str,
-    board2_id: str,
-    width: float = 1.0,
-    height: float = 1.0,
-    depth: float = 1.0,
-    num_fingers: int = 5,
-    offset_x: float = 0.0,
-    offset_y: float = 0.0,
-    offset_z: float = 0.0
-) -> str:
-    """Create a finger joint (box joint) between two components"""
-    try:
-        logger.info(f"create_finger_joint called with board1_id={board1_id}, board2_id={board2_id}, width={width}, height={height}, depth={depth}, num_fingers={num_fingers}")
-        
-        sketchup = get_sketchup_connection()
-        
-        result = sketchup.send_command(
-            method="tools/call",
-            params={
-                "name": "create_finger_joint",
-                "arguments": {
-                    "board1_id": board1_id,
-                    "board2_id": board2_id,
-                    "width": width,
-                    "height": height,
-                    "depth": depth,
-                    "num_fingers": num_fingers,
-                    "offset_x": offset_x,
-                    "offset_y": offset_y,
-                    "offset_z": offset_z
-                }
-            },
-            request_id=ctx.request_id
-        )
-        
-        logger.info(f"create_finger_joint result: {result}")
-        return json.dumps(result)
-    except Exception as e:
-        logger.error(f"Error in create_finger_joint: {str(e)}")
-        return f"Error creating finger joint: {str(e)}"
+        return f"Error building floor plan: {str(e)}"
 
 @mcp.tool()
 def eval_ruby(
     ctx: Context,
     code: str
 ) -> str:
-    """Evaluate arbitrary Ruby code in Sketchup"""
+    """Run Ruby code inside SketchUp (full SketchUp Ruby API) and return the
+    value of the last expression as a string.
+
+    This is the main modelling tool. Rules that avoid the usual mistakes:
+    - Lengths are inches internally. Write 3.m, 150.mm, 15.cm, never bare numbers.
+    - model = Sketchup.active_model; wrap edits in
+      model.start_operation('name', true) ... model.commit_operation.
+    - A face on the ground plane (z=0) has its normal pointing down, so
+      pushpull(+h) would go underground: face.reverse! if face.normal.z < 0.
+    - Build each element inside its own group (model.active_entities.add_group).
+    - Make the last expression a short summary string (counts, bounds) so you
+      can verify the result. Calls time out after about 15 seconds, so split
+      very large jobs into several calls.
+    """
     try:
         logger.info(f"eval_ruby called with code length: {len(code)}")
         

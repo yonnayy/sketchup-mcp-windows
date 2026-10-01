@@ -25,7 +25,7 @@ ENV/
 .rvmrc
 
 # Sketchup specific
-*.rbz
+# rbz builds are committed under release/
 
 # OS specific
 .DS_Store
@@ -33,3 +33,6 @@ ENV/
 ._*
 Thumbs.db
 *.tar.gz
+
+# uv
+uv.lock

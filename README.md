@@ -1,106 +1,55 @@
-# SketchupMCP - Sketchup Model Context Protocol Integration
+# SketchUp MCP untuk Windows
 
-SketchupMCP connects Sketchup to Claude AI through the Model Context Protocol (MCP), allowing Claude to directly interact with and control Sketchup. This integration enables prompt-assisted 3D modeling, scene creation, and manipulation in Sketchup.
+Menghubungkan **Claude Desktop** ke **SketchUp** di Windows, supaya Claude bisa memodelkan langsung di SketchUp, termasuk mengubah **denah menjadi model 3D** (dinding, bukaan pintu dan jendela, pelat lantai).
 
-Big Shoutout to [Blender MCP](https://github.com/ahujasid/blender-mcp) for the inspiration and structure.
+Ini adalah versi yang sudah diperbaiki dari [mhyrr/sketchup-mcp](https://github.com/mhyrr/sketchup-mcp) (lisensi MIT). Versi aslinya membuat SketchUp membeku di Windows; lihat [CHANGES.md](CHANGES.md).
 
-## Features
+![Rumah 6 x 4 m hasil build_floor_plan ditambah atap pelana dari eval_ruby](docs/contoh-hasil.png)
 
-* **Two-way communication**: Connect Claude AI to Sketchup through a TCP socket connection
-* **Component manipulation**: Create, modify, delete, and transform components in Sketchup
-* **Material control**: Apply and modify materials and colors
-* **Scene inspection**: Get detailed information about the current Sketchup scene
-* **Selection handling**: Get and manipulate selected components
-* **Ruby code evaluation**: Execute arbitrary Ruby code directly in SketchUp for advanced operations
+> **Untuk Claude / agent AI yang diminta memasang ini:** ikuti [docs/INSTALL.md](docs/INSTALL.md) langkah demi langkah, lalu [docs/MODELING.md](docs/MODELING.md) untuk uji coba denah ke 3D.
 
-## Components
+## Pasang (satu perintah)
 
-The system consists of two main components:
+Buka **PowerShell** lalu jalankan:
 
-1. **Sketchup Extension**: A Sketchup extension that creates a TCP server within Sketchup to receive and execute commands
-2. **MCP Server (`sketchup_mcp/server.py`)**: A Python server that implements the Model Context Protocol and connects to the Sketchup extension
-
-## Installation
-
-### Python Packaging
-
-We're using uv so you'll need to ```brew install uv```
-
-### Sketchup Extension
-
-1. Download or build the latest `.rbz` file
-2. In Sketchup, go to Window > Extension Manager
-3. Click "Install Extension" and select the downloaded `.rbz` file
-4. Restart Sketchup
-
-## Usage
-
-### Starting the Connection
-
-1. In Sketchup, go to Extensions > SketchupMCP > Start Server
-2. The server will start on the default port (9876)
-3. Make sure the MCP server is running in your terminal
-
-### Using with Claude
-
-Configure Claude to use the MCP server by adding the following to your Claude configuration:
-
-```json
-    "mcpServers": {
-        "sketchup": {
-            "command": "uvx",
-            "args": [
-                "sketchup-mcp"
-            ]
-        }
-    }
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/yonnayy/sketchup-mcp-windows/main/install.ps1 | iex"
 ```
 
-This will pull the [latest from PyPI](https://pypi.org/project/sketchup-mcp/)
+Lalu:
 
-Once connected, Claude can interact with Sketchup using the following capabilities:
+1. Buka SketchUp dan buka sebuah model (lewati jendela Welcome). Server MCP menyala sendiri.
+2. Tutup Claude Desktop sepenuhnya (ikon di tray > Quit), lalu buka lagi.
+3. Periksa hasilnya:
 
-#### Tools
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/yonnayy/sketchup-mcp-windows/main/check.ps1 | iex"
+```
 
-* `get_scene_info` - Gets information about the current Sketchup scene
-* `get_selected_components` - Gets information about currently selected components
-* `create_component` - Create a new component with specified parameters
-* `delete_component` - Remove a component from the scene
-* `transform_component` - Move, rotate, or scale a component
-* `set_material` - Apply materials to components
-* `export_scene` - Export the current scene to various formats
-* `eval_ruby` - Execute arbitrary Ruby code in SketchUp for advanced operations
+Kalau semua baris `[PASS]`, coba ketik di Claude Desktop: *"Buat rumah 6 x 4 meter di SketchUp, tinggi dinding 3 meter, satu pintu di depan."*
 
-### Example Commands
+Syarat: Windows 10/11, SketchUp desktop (bukan SketchUp Web), Claude Desktop. Diuji di SketchUp 2025; versi 2021 ke atas seharusnya jalan tetapi belum diuji.
 
-Here are some examples of what you can ask Claude to do:
+## Tool yang tersedia
 
-* "Create a simple house model with a roof and windows"
-* "Select all components and get their information"
-* "Make the selected component red"
-* "Move the selected component 10 units up"
-* "Export the current scene as a 3D model"
-* "Create a complex arts and crafts cabinet using Ruby code"
+| Tool | Fungsi |
+|---|---|
+| `build_floor_plan` | Denah (dalam meter) menjadi dinding, bukaan pintu/jendela, dan pelat lantai |
+| `eval_ruby` | Menjalankan kode Ruby di SketchUp (akses penuh ke SketchUp Ruby API) |
+| `export_scene` | Ekspor png/jpg/skp/obj/dae/stl; mengembalikan path file. `png` dipakai untuk melihat hasil |
+| `get_selection` | Daftar objek yang sedang dipilih pengguna |
+| `create_component` | Primitif sederhana: cube, cylinder, sphere, cone |
+| `transform_component` | Geser (relatif), putar, skala |
+| `set_material` | Warna dasar |
+| `delete_component` | Hapus objek berdasarkan ID |
 
-## Troubleshooting
+## Dokumen
 
-* **Connection issues**: Make sure both the Sketchup extension server and the MCP server are running
-* **Command failures**: Check the Ruby Console in Sketchup for error messages
-* **Timeout errors**: Try simplifying your requests or breaking them into smaller steps
+- [docs/INSTALL.md](docs/INSTALL.md): pemasangan langkah demi langkah dan cara verifikasi
+- [docs/MODELING.md](docs/MODELING.md): cara kerja denah ke 3D, format data, dan jebakan SketchUp
+- [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md): gejala dan solusinya
+- [CHANGES.md](CHANGES.md): apa yang diubah dari versi asli
 
-## Technical Details
+## Lisensi
 
-### Communication Protocol
-
-The system uses a simple JSON-based protocol over TCP sockets:
-
-* **Commands** are sent as JSON objects with a `type` and optional `params`
-* **Responses** are JSON objects with a `status` and `result` or `message`
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-MIT 
+MIT, sama seperti proyek aslinya. Lihat [LICENSE](LICENSE).

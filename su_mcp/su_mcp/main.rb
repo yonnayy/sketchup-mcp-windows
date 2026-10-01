@@ -4,27 +4,31 @@ require 'socket'
 require 'fileutils'
 
 puts "MCP Extension loading..."
-SKETCHUP_CONSOLE.show rescue nil
 
 module SU_MCP
+  PREF_SECTION = 'SU_MCP'.freeze
+
+  def self.autostart?
+    Sketchup.read_default(PREF_SECTION, 'autostart', true) ? true : false
+  end
+
+  def self.autostart=(value)
+    Sketchup.write_default(PREF_SECTION, 'autostart', value ? true : false)
+  end
+
   class Server
+    attr_reader :port
+
     def initialize
       @port = 9876
       @server = nil
       @running = false
       @timer_id = nil
       @clients = {}
-      
-      # Try multiple ways to show console
-      begin
-        SKETCHUP_CONSOLE.show
-      rescue
-        begin
-          Sketchup.send_action("showRubyPanel:")
-        rescue
-          UI.start_timer(0) { SKETCHUP_CONSOLE.show }
-        end
-      end
+    end
+
+    def running?
+      @running ? true : false
     end
 
     def log(msg)
@@ -141,7 +145,10 @@ module SU_MCP
         }
         
         log "Server started and listening"
-        
+
+      rescue Errno::EADDRINUSE => e
+        log "Port #{@port} is already in use (another SketchUp window is probably running the MCP server)."
+        stop
       rescue StandardError => e
         log "Error: #{e.message}"
         log e.backtrace.join("\n")
@@ -268,6 +275,8 @@ module SU_MCP
           create_dovetail(args)
         when "create_finger_joint"
           create_finger_joint(args)
+        when "build_floor_plan"
+          build_floor_plan(args)
         when "eval_ruby"
           eval_ruby(args)
         else
@@ -279,7 +288,7 @@ module SU_MCP
           response = {
             jsonrpc: request["jsonrpc"] || "2.0",
             result: {
-              content: [{ type: "text", text: result[:result] || "Success" }],
+              content: [{ type: "text", text: result[:result] || result[:path] || "Success" }],
               isError: false,
               success: true,
               resourceId: result[:id]
@@ -1849,6 +1858,158 @@ module SU_MCP
       }
     end
     
+    # Build walls (with door and window openings) and a floor slab from a plan
+    # described in METRES. The spec format is documented in docs/MODELING.md.
+    #
+    # Each wall is drawn as its elevation (length x height, with the openings
+    # already cut out of the outline) and then extruded by its thickness, so no
+    # boolean/solid tools are needed and it works in every SketchUp edition.
+    def build_floor_plan(params)
+      spec = params["spec"] || params
+      spec = JSON.parse(spec) if spec.is_a?(String)
+      model = Sketchup.active_model
+      raise "No model is open in SketchUp" unless model
+
+      walls = spec["walls"] || []
+      raise "spec.walls is empty" if walls.empty?
+
+      default_h = (spec["wall_height"] || 3.0).to_f
+      default_t = (spec["wall_thickness"] || 0.15).to_f
+      base_z = (spec["base_z"] || 0).to_f
+      name = (spec["name"] || "Denah").to_s
+      openings = spec["openings"] || []
+      warnings = []
+      wall_count = 0
+      opening_count = 0
+
+      model.start_operation("MCP: #{name}", true)
+      begin
+        root = model.active_entities.add_group
+        root.name = name
+        wall_tag = model.layers.add("Dinding")
+        slab_tag = model.layers.add("Lantai")
+        known_ids = []
+
+        walls.each_with_index do |w, i|
+          id = (w["id"] || "W#{i + 1}").to_s
+          known_ids << id
+          a = w["from"]
+          b = w["to"]
+          t = (w["thickness"] || default_t).to_f
+          h = (w["height"] || default_h).to_f
+          dx = b[0].to_f - a[0].to_f
+          dy = b[1].to_f - a[1].to_f
+          len = Math.sqrt(dx * dx + dy * dy)
+          if len < 0.01
+            warnings << "#{id}: zero length, skipped"
+            next
+          end
+          # Walls are given as centrelines. Extending both ends by half the
+          # thickness closes the square gap that would otherwise show at corners.
+          ext = (w.key?("extend") && !w["extend"]) ? 0.0 : t / 2.0
+          x_min = -ext
+          x_max = len + ext
+
+          doors = []
+          windows = []
+          openings.each do |o|
+            next unless o["wall"].to_s == id
+            x0 = o["offset"].to_f
+            x1 = x0 + o["width"].to_f
+            sill = (o["sill"] || 0).to_f
+            top = sill + o["height"].to_f
+            label = "#{o["type"] || "opening"} on #{id} at #{x0}"
+            if o["width"].to_f <= 0 || o["height"].to_f <= 0
+              warnings << "#{label}: width/height must be > 0, skipped"
+            elsif x0 < x_min + 0.02 || x1 > x_max - 0.02
+              warnings << "#{label}: does not fit in the wall length (#{len.round(3)} m), skipped"
+            elsif top > h - 0.02
+              warnings << "#{label}: top (#{top} m) reaches the wall height (#{h} m), skipped"
+            elsif sill <= 0.001
+              doors << [x0, x1, top]
+            else
+              windows << [x0, x1, sill, top]
+            end
+          end
+          doors.sort_by! { |d| d[0] }
+          kept = []
+          doors.each do |d|
+            if kept.any? && d[0] < kept.last[1] + 0.02
+              warnings << "door on #{id} at #{d[0]}: overlaps the previous door, skipped"
+            else
+              kept << d
+            end
+          end
+          doors = kept
+
+          group = root.entities.add_group
+          group.name = "Dinding #{id}"
+          group.layer = wall_tag
+          ents = group.entities
+          y = (-t / 2.0).m
+          pt = lambda { |x, z| Geom::Point3d.new(x.m, y, z.m) }
+
+          outline = [pt.call(x_min, 0)]
+          doors.each do |x0, x1, top|
+            outline << pt.call(x0, 0) << pt.call(x0, top) << pt.call(x1, top) << pt.call(x1, 0)
+          end
+          outline << pt.call(x_max, 0) << pt.call(x_max, h) << pt.call(x_min, h)
+          ents.add_face(outline)
+          opening_count += doors.length
+
+          windows.each do |x0, x1, sill, top|
+            hole = ents.add_face(pt.call(x0, sill), pt.call(x1, sill), pt.call(x1, top), pt.call(x0, top))
+            if hole
+              hole.erase!
+              opening_count += 1
+            else
+              warnings << "window on #{id} at #{x0}: could not be cut"
+            end
+          end
+
+          face = ents.grep(Sketchup::Face).max_by { |f| f.area }
+          face.pushpull(face.normal.y > 0 ? t.m : -t.m)
+
+          placement = Geom::Transformation.new(Geom::Point3d.new(a[0].to_f.m, a[1].to_f.m, base_z.m)) *
+                      Geom::Transformation.rotation(ORIGIN, Z_AXIS, Math.atan2(dy, dx))
+          group.transform!(placement)
+          wall_count += 1
+        end
+
+        openings.each do |o|
+          warnings << "opening refers to unknown wall #{o["wall"].inspect}" unless known_ids.include?(o["wall"].to_s)
+        end
+
+        slab = spec["slab"]
+        if slab && slab["outline"] && slab["outline"].length >= 3
+          thickness = (slab["thickness"] || 0.12).to_f
+          group = root.entities.add_group
+          group.name = "Lantai"
+          group.layer = slab_tag
+          points = slab["outline"].map { |p| Geom::Point3d.new(p[0].to_f.m, p[1].to_f.m, base_z.m) }
+          face = group.entities.add_face(points)
+          # A face on the ground plane is created facing down; make it face up
+          # so the slab's top sits at base_z and its body goes below it.
+          face.reverse! if face.normal.z < 0
+          face.pushpull(-thickness.m)
+        end
+
+        model.commit_operation
+      rescue StandardError
+        model.abort_operation
+        raise
+      end
+
+      model.active_view.zoom_extents
+      bb = root.bounds
+      size = [bb.width, bb.height, bb.depth].map { |v| v.to_m.round(2) }
+      summary = "Built '#{name}': #{wall_count} walls, #{opening_count} openings" \
+                "#{spec["slab"] ? ", 1 slab" : ""}. Size #{size[0]} x #{size[1]} x #{size[2]} m (x, y, z). " \
+                "Group entityID #{root.entityID}."
+      summary += " Warnings: " + warnings.join("; ") unless warnings.empty?
+      { success: true, id: root.entityID, result: summary }
+    end
+
     def eval_ruby(params)
       log "Evaluating Ruby code with length: #{params['code'].length}"
       
@@ -1880,7 +2041,21 @@ module SU_MCP
     menu = UI.menu("Plugins").add_submenu("MCP Server")
     menu.add_item("Start Server") { @server.start }
     menu.add_item("Stop Server") { @server.stop }
-    
+    menu.add_item("Status") {
+      state = @server.running? ? "RUNNING on 127.0.0.1:#{@server.port}" : "STOPPED"
+      UI.messagebox("SketchUp MCP server: #{state}\nAuto-start on launch: #{SU_MCP.autostart? ? 'on' : 'off'}")
+    }
+    autostart_item = menu.add_item("Auto-start on Launch") {
+      SU_MCP.autostart = !SU_MCP.autostart?
+    }
+    menu.set_validation_proc(autostart_item) {
+      SU_MCP.autostart? ? MF_CHECKED : MF_UNCHECKED
+    }
+
+    # Start listening as soon as SketchUp is up, so nobody has to remember
+    # the menu click. Deferred with a timer so it never delays startup.
+    UI.start_timer(1, false) { @server.start } if SU_MCP.autostart?
+
     file_loaded(__FILE__)
   end
 end 
