@@ -10,15 +10,20 @@ Aturan ini berlaku untuk **setiap** model yang dibuat lewat MCP, mulai dari mode
 2. **Geometri mentah selalu Untagged.** Edge dan face di dalam grup tidak diberi tag. Tag hanya dipasang pada grup atau komponen.
 3. **Setiap elemen punya tepat satu tag dari daftar baku** di bawah. Jangan membuat tag dengan nama lain.
 4. **Setiap elemen punya material bernama `Elemen - Bahan`,** dipasang pada grupnya, bukan dicat per face. Face dibiarkan tanpa material supaya mewarisi material grup; cat per face hanya kalau satu elemen memang punya dua bahan.
-5. **Susunan bertingkat:** satu bangunan adalah satu grup wadah, di dalamnya satu grup per lantai, di dalamnya elemen. Grup wadah tidak diberi tag dan tidak diberi material.
+5. **Susunan bertingkat:** satu bangunan adalah satu grup wadah, di dalamnya satu grup per lantai, di dalamnya elemen. Benda yang terdiri dari beberapa bagian (satu pintu, satu jendela) juga dibungkus satu grup wadah. Grup wadah tidak diberi tag dan tidak diberi material.
 6. **Audit sebelum selesai.** Jalankan `SU_MCP.audit_model` lewat `eval_ruby`. Pekerjaan belum selesai sebelum hasilnya `AUDIT OK`.
 
 ```
 Rumah Contoh                 (wadah: tanpa tag, tanpa material)
   Lantai 1                   (wadah)
     Dinding W1               [01-Dinding]  Dinding - Cat Putih
-    Pintu W1-1               [03-Pintu]    Pintu - Kayu
-    Jendela W1-1             [04-Jendela]  Jendela - Kaca
+    Pintu W1-1               (wadah: satu unit pintu)
+      Kusen                  [03-Pintu]    Pintu - Kayu
+      Daun                   [03-Pintu]    Pintu - Kayu
+    Jendela W1-1             (wadah: satu unit jendela)
+      Kusen                  [04-Jendela]  Jendela - Kayu
+      Daun 1                 [04-Jendela]  Jendela - Kayu
+      Kaca 1                 [04-Jendela]  Jendela - Kaca
     Lantai                   [02-Lantai]   Lantai - Keramik
   Atap Pelana                [05-Atap]     Atap - Genteng
 ```
@@ -30,8 +35,8 @@ Rumah Contoh                 (wadah: tanpa tag, tanpa material)
 | `referensi` | `00-Referensi` | (tidak ada) | Figur skala, gambar denah impor, garis bantu |
 | `dinding` | `01-Dinding` | `Dinding - Cat Putih` | Dinding, ampig, pagar tembok |
 | `lantai` | `02-Lantai` | `Lantai - Keramik` | Pelat lantai, teras |
-| `pintu` | `03-Pintu` | `Pintu - Kayu` | Daun pintu, kusen pintu |
-| `jendela` | `04-Jendela` | `Jendela - Kaca` | Kaca jendela, kusen jendela |
+| `pintu` | `03-Pintu` | `Pintu - Kayu` | Kusen pintu, daun pintu, busur ayun |
+| `jendela` | `04-Jendela` | `Jendela - Kaca` | Kaca jendela; kusen dan daun jendela memakai `Jendela - Kayu` |
 | `atap` | `05-Atap` | `Atap - Genteng` | Penutup atap, lisplang, plafon |
 | `struktur` | `06-Struktur` | `Struktur - Beton` | Kolom, balok, sloof, pondasi |
 | `tangga` | `07-Tangga` | `Tangga - Beton` | Tangga, ramp, bordes |
@@ -80,7 +85,7 @@ SU_MCP.audit_model
 Hasil yang benar:
 
 ```
-AUDIT OK. 27 elements and 2 containers checked. All rules satisfied.
+AUDIT OK. 56 elements and 13 containers checked. All rules satisfied.
 ```
 
 Kalau ada pelanggaran, setiap baris menyebut elemen dan masalahnya:

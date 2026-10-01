@@ -110,13 +110,36 @@ Semua angka dalam **meter**.
 | `openings[].hinge` | Pintu saja. Letak engsel: `"start"` (kusen yang lebih dekat ke titik `from` dinding) atau `"end"` (yang lebih dekat ke `to`) |
 | `openings[].swing` | Pintu saja. Ke sisi mana pintu terbuka: `"left"` atau `"right"` dinding, dilihat sambil berjalan dari `from` ke `to` |
 | `openings[].open` | Sudut bukaan daun pintu dalam derajat, bawaan `90` |
-| `infill` | Bawaan `true`: tiap pintu diisi daun pintu 4 cm dan tiap jendela diisi kaca 1 cm. Isi `false` untuk lubang saja. Pintu dengan `hinge`/`swing` digambar terbuka dengan busur ayun di lantai (`Ayun Pintu W1-1`); tanpa keduanya daun pintu digambar tertutup |
+| `openings[].style` | Pintu saja. Model daun: `"panel"` (bawaan, dua panel tenggelam di tiap sisi) atau `"polos"`. `door_style` di tingkat atas mengubah bawaannya |
+| `openings[].leaves` | Jendela saja. Jumlah daun jendela. Bawaan dihitung dari lebar bersih: sampai 0,75 m satu daun, sampai 1,5 m dua, di atas itu tiga |
+| `openings[].fixed` | Jendela saja. `true` untuk jendela mati: kaca langsung di kusen, tanpa daun |
+| `openings[].frame` | `false` untuk bukaan tanpa kusen (hanya daun pintu atau kaca polos). `frames: false` di tingkat atas mematikan kusen untuk semua bukaan |
+| `openings[].frame_width`, `openings[].frame_depth` | Ukuran penampang kusen: lebar muka dan kedalaman. Bawaan 0,06 dan 0,12 m (kusen 6/12); kedalaman tidak melebihi tebal dinding. Bisa juga diisi di tingkat atas untuk semua bukaan |
+| `infill` | Bawaan `true`: tiap bukaan diisi pintu atau jendela lengkap (lihat [Pintu dan jendela](#pintu-dan-jendela)). Isi `false` untuk lubang saja |
 | `slab.outline` | Titik keliling pelat lantai. Permukaan atas pelat ada di `base_z` |
 | `slab.material` | Material lain untuk pelat, misalnya `"Lantai - Kayu"` |
 
-Hasilnya mengikuti [STANDARDS.md](STANDARDS.md): satu grup per dinding (`Dinding W1`) di tag `01-Dinding`, daun pintu (`Pintu W1-1`) di `03-Pintu`, kaca jendela (`Jendela W1-1`) di `04-Jendela`, dan `Lantai` di `02-Lantai`, masing-masing dengan material bakunya. Setiap elemen adalah solid tertutup.
+Hasilnya mengikuti [STANDARDS.md](STANDARDS.md): satu grup per dinding (`Dinding W1`) di tag `01-Dinding`, satu unit per pintu (`Pintu W1-1`) dengan bagian-bagiannya di `03-Pintu`, satu unit per jendela (`Jendela W1-1`) dengan bagian-bagiannya di `04-Jendela`, dan `Lantai` di `02-Lantai`, masing-masing dengan material bakunya. Setiap elemen adalah solid tertutup.
 
-Batasan: dinding lurus saja (dinding lengkung dipecah jadi beberapa segmen pendek), sambungan otomatis dihitung untuk dinding yang bertemu tegak lurus (pertemuan miring ditutup secara pendekatan), bukaan persegi, daun pintu dan kaca berupa panel polos tanpa kusen, tidak membuat atap. Untuk itu pakai `eval_ruby`.
+Batasan: dinding lurus saja (dinding lengkung dipecah jadi beberapa segmen pendek), sambungan otomatis dihitung untuk dinding yang bertemu tegak lurus (pertemuan miring ditutup secara pendekatan), bukaan persegi, kusen berpenampang persegi tanpa sponing dan tanpa profil, tidak ada engsel dan gagang, daun jendela digambar tertutup, tidak membuat atap. Untuk itu pakai `eval_ruby`.
+
+## Pintu dan jendela
+
+![Pintu dan jendela dengan kusen dan daun](contoh-kusen.png)
+
+Setiap bukaan menjadi satu **unit**: grup wadah bernama `Pintu W1-1` atau `Jendela W1-1` (nomor urut per dinding) yang berisi bagian-bagiannya. Unit bisa dipindah, disembunyikan, atau diganti sebagai satu kesatuan.
+
+| Unit | Isi | Tag | Material |
+|---|---|---|---|
+| Pintu | `Kusen` (tiga sisi, 6/12), `Daun` (3,5 cm, model panel atau polos), `Ayun` (busur ayun di lantai, kalau `hinge`/`swing` diisi) | `03-Pintu` | `Pintu - Kayu` |
+| Jendela | `Kusen` (empat sisi, 6/12), lalu per daun: `Daun 1` (rangka 3 cm, lebar muka 7 cm) dan `Kaca 1` (5 mm) | `04-Jendela` | `Jendela - Kayu` untuk kusen dan daun, `Jendela - Kaca` untuk kaca |
+| Jendela mati (`fixed`) | `Kusen` dan `Kaca` | `04-Jendela` | sama |
+
+**Ukuran bukaan adalah lubang dinding, yaitu sisi luar kusen.** Pintu dengan `width` 0,90 dan `height` 2,10 punya lubang 0,90 x 2,10 m; kusennya 6 cm, jadi daun pintunya 0,78 x 2,04 m. Kalau denah menyebut ukuran daun pintu (misalnya daun 0,80 m), tambahkan dua kali lebar kusen ke `width` dan satu kali ke `height`. Kalau tidak jelas ukuran itu merujuk ke lubang atau ke daun, tanyakan ke pengguna.
+
+Pintu dengan `hinge` dan `swing` digambar terbuka: daun berengsel di tepi dalam kusen, rata dengan muka kusen di sisi bukaannya. Tanpa keduanya daun digambar tertutup di tengah kusen.
+
+Bukaan yang terlalu kecil untuk kusen (lebar atau tinggi bersih kurang dari 15 cm) diisi kaca polos saja. Untuk kusen aluminium atau ukuran lain, isi `frame_width` dan `frame_depth` (misalnya 0,04 dan 0,10) lalu ganti material grup `Kusen` dan `Daun`-nya lewat `eval_ruby`: `grup.material = SU_MCP.material(:jendela, 'Jendela - Aluminium', [180, 185, 190])`.
 
 ## Laporan akurasi
 
@@ -215,8 +238,8 @@ Panggil `build_floor_plan` dengan:
     {"wall": "W4", "type": "window", "offset": 0.9, "width": 1.2, "sill": 0.9, "height": 1.2},
     {"wall": "W4", "type": "window", "offset": 3.8, "width": 1.4, "sill": 0.9, "height": 1.2},
     {"wall": "W2", "type": "window", "offset": 3.9, "width": 1.2, "sill": 0.9, "height": 1.2},
-    {"wall": "W2", "type": "window", "offset": 0.5, "width": 0.5, "sill": 1.6, "height": 0.4},
-    {"wall": "W7", "type": "door", "offset": 0.4, "width": 0.7, "height": 2, "hinge": "end", "swing": "right"},
+    {"wall": "W2", "type": "window", "offset": 0.5, "width": 0.5, "sill": 1.6, "height": 0.4, "fixed": true},
+    {"wall": "W7", "type": "door", "offset": 0.4, "width": 0.7, "height": 2, "hinge": "end", "swing": "right", "style": "polos"},
     {"wall": "W3", "type": "window", "offset": 0.9, "width": 1.2, "sill": 0.9, "height": 1.2},
     {"wall": "W3", "type": "window", "offset": 3.9, "width": 1.2, "sill": 0.9, "height": 1.2}
   ],
@@ -226,7 +249,7 @@ Panggil `build_floor_plan` dengan:
 
 Jawaban yang benar: `Built 'Lantai 1': 8 walls, 4 doors, 7 windows, 1 slab. Size 6.0 x 6.0 x 3.12 m (x, y, z).`
 
-Arah bukaan pintu di sini: pintu depan (W1) terbuka ke dalam rumah, dua pintu kamar (W5) terbuka ke dalam kamar dengan engsel di sisi sekat tengah, dan pintu kamar mandi (W7) terbuka ke dalam kamar mandi.
+Arah bukaan pintu di sini: pintu depan (W1) terbuka ke dalam rumah, dua pintu kamar (W5) terbuka ke dalam kamar dengan engsel di sisi sekat tengah, dan pintu kamar mandi (W7) terbuka ke dalam kamar mandi dengan daun polos. Jendela kecil kamar mandi (W2) adalah jendela mati.
 
 ### Langkah 3: laporan akurasi
 
@@ -274,7 +297,7 @@ model.commit_operation
 SU_MCP.audit_model
 ```
 
-Jawaban yang benar: `AUDIT OK. 27 elements and 2 containers checked. All rules satisfied.`
+Jawaban yang benar: `AUDIT OK. 56 elements and 13 containers checked. All rules satisfied.`
 
 ### Langkah 5: tampak denah berdimensi
 

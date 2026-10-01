@@ -85,16 +85,33 @@ walk.call(rumah.entities)
 rows.join("\n")
 '''
 
-# Where the two open door leaves must be (world metres, x relative to OX):
-# W1: hinge at x=1.0 on the inside face (y=0.15), opened 90 degrees into the house.
-# W5: hinge at y=3.8 on the east face (x=4.05), opened 90 degrees into the east room.
+# Where the two open door leaves must be (world metres, x relative to OX).
+# Each door has a 6 cm frame, so the leaf is 12 cm narrower than the opening
+# and hangs on the inner edge of the jamb, flush with the frame face.
+# W1 (15 cm wall, 12 cm deep frame): hinge at x=1.06, y=0.135, opened into the house.
+# W5 (10 cm wall, 10 cm deep frame): hinge at y=3.74, x=4.05, opened into the east room.
 DOORS = r'''
 rumah = SU_MCP.container('MCP TEST')
 lantai = rumah.entities.grep(Sketchup::Group).find { |g| g.name == 'Lantai 1' }
-lantai.entities.grep(Sketchup::Group).select { |g| g.name.start_with?('Pintu') }.map do |g|
-  b = g.bounds
-  "%s x=%.2f..%.2f y=%.2f..%.2f" % [g.name, b.min.x.to_m - 50, b.max.x.to_m - 50, b.min.y.to_m, b.max.y.to_m]
+lantai.entities.grep(Sketchup::Group).select { |g| g.name.start_with?('Pintu') }.map do |unit|
+  parts = unit.entities.grep(Sketchup::Group).map(&:name).sort.join('+')
+  leaf = unit.entities.grep(Sketchup::Group).find { |g| g.name == 'Daun' }
+  pts = (0..7).map { |i| leaf.bounds.corner(i).transform(unit.transformation) }
+  xs = pts.map { |p| p.x.to_f.to_m - 50 }
+  ys = pts.map { |p| p.y.to_f.to_m }
+  "%s [%s] x=%.3f..%.3f y=%.3f..%.3f" % [unit.name, parts, xs.min, xs.max, ys.min, ys.max]
 end.join("\n")
+'''
+
+# Every window is a unit holding a frame, sashes and glass; none may be see-through timber.
+WINDOWS = r'''
+rumah = SU_MCP.container('MCP TEST')
+lantai = rumah.entities.grep(Sketchup::Group).find { |g| g.name == 'Lantai 1' }
+rows = lantai.entities.grep(Sketchup::Group).select { |g| g.name.start_with?('Jendela') }.map do |unit|
+  "%s [%s]" % [unit.name, unit.entities.grep(Sketchup::Group).map(&:name).sort.join('+')]
+end
+m = Sketchup.active_model.materials
+rows.join("\n") + "\nkayu=%.1f kaca=%.1f" % [m['Jendela - Kayu'].alpha, m['Jendela - Kaca'].alpha]
 '''
 
 PLAN = {
@@ -197,7 +214,9 @@ async def run() -> int:
                 await ruby(session, ROOF)
                 report = await ruby(session, INSPECT)
                 print(report)
-                assert report.count("\n") + 1 == 13, "expected 13 elements (5 walls, 2 doors, 4 windows, slab, roof)"
+                # 5 walls + slab + roof, 2 doors (frame + leaf), and windows of
+                # 2, 3, 2 and 3 sashes (frame + sash and glass per sash).
+                assert report.count("\n") + 1 == 35, "expected 35 solid elements, got %d" % (report.count("\n") + 1)
                 assert "solid=false" not in report, "an element is not a closed solid"
                 assert "tag=Layer0" not in report and "material=NONE" not in report, "an element lacks tag or material"
 
@@ -211,8 +230,13 @@ async def run() -> int:
 
                 doors = await ruby(session, DOORS)
                 print(doors)
-                assert "Pintu W1-1 x=1.00..1.04 y=0.15..1.05" in doors, doors
-                assert "Pintu W5-1 x=4.05..4.85 y=3.76..3.80" in doors, doors
+                assert "Pintu W1-1 [Ayun+Daun+Kusen] x=1.060..1.095 y=0.135..0.915" in doors, doors
+                assert "Pintu W5-1 [Ayun+Daun+Kusen] x=4.050..4.730 y=3.705..3.740" in doors, doors
+                windows = await ruby(session, WINDOWS)
+                print(windows)
+                assert "Jendela W1-1 [Daun 1+Daun 2+Kaca 1+Kaca 2+Kusen]" in windows, windows
+                assert "Jendela W2-1 [Daun 1+Daun 2+Daun 3+Kaca 1+Kaca 2+Kaca 3+Kusen]" in windows, windows
+                assert "kayu=1.0 kaca=0.4" in windows, windows
 
                 plan = json.loads(text(await session.call_tool("add_plan_view", {"spec": PLAN})))
                 made = plan["content"][0]["text"]

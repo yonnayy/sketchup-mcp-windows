@@ -57,7 +57,9 @@ module SU_MCP
       unless mat
         mat = materials.add(name)
         mat.color = Sketchup::Color.new(*(rgb || r[2] || [200, 200, 200]))
-        mat.alpha = opacity || r[3]
+        # Only the kind's own default material inherits its opacity: another
+        # finish for a window (a timber frame) must not come out like glass.
+        mat.alpha = opacity || (name == r[1] ? r[3] : 1.0)
       end
       mat
     end
@@ -2451,6 +2453,44 @@ module SU_MCP
       end
 
       # --- pass 2: geometry ---------------------------------------------------
+      # Extrude a frame seen in elevation: the rectangle x0..x1 by z0..z1 with a
+      # border `inset` wide. open_bottom leaves the bottom side out (door frames).
+      ring = lambda do |ents, x0, x1, z0, z1, inset, yc, depth, open_bottom|
+        y = (yc - depth / 2.0).m
+        pt = lambda { |x, z| Geom::Point3d.new(x.m, y, z.m) }
+        if open_bottom
+          ents.add_face(pt.call(x0, z0), pt.call(x0 + inset, z0), pt.call(x0 + inset, z1 - inset),
+                        pt.call(x1 - inset, z1 - inset), pt.call(x1 - inset, z0), pt.call(x1, z0),
+                        pt.call(x1, z1), pt.call(x0, z1))
+        else
+          ents.add_face(pt.call(x0, z0), pt.call(x1, z0), pt.call(x1, z1), pt.call(x0, z1))
+          hole = ents.add_face(pt.call(x0 + inset, z0 + inset), pt.call(x1 - inset, z0 + inset),
+                               pt.call(x1 - inset, z1 - inset), pt.call(x0 + inset, z1 - inset))
+          hole.erase! if hole
+        end
+        face = ents.grep(Sketchup::Face).max_by { |f| f.area }
+        face.pushpull(face.normal.y > 0 ? depth.m : -depth.m)
+      end
+
+      # Panelled door: two sunk panels on each side of a leaf that spans
+      # x0..x1 by 0..top and is `thickness` thick around yc. Too small a leaf
+      # is left flush.
+      recess = lambda do |ents, x0, x1, top, yc, thickness|
+        stile = 0.10
+        next if x1 - x0 < 2 * stile + 0.15 || top < 1.5
+        fields = [[0.20, 0.90], [1.05, top - stile]]
+        [yc - thickness / 2.0, yc + thickness / 2.0].each do |y|
+          fields.each do |z0, z1|
+            next if z1 - z0 < 0.15
+            pts = [[x0 + stile, z0], [x1 - stile, z0], [x1 - stile, z1], [x0 + stile, z1]]
+            face = ents.add_face(pts.map { |x, z| Geom::Point3d.new(x.m, y.m, z.m) })
+            next unless face
+            outward = face.normal.y * (y - yc) > 0
+            face.pushpull(outward ? -0.008.m : 0.008.m)
+          end
+        end
+      end
+
       previous_layer = model.active_layer
       model.start_operation("MCP: #{name}", true)
       begin
@@ -2494,7 +2534,7 @@ module SU_MCP
             elsif sill <= 0.001
               doors << [x0, x1, top, o]
             else
-              windows << [x0, x1, sill, top]
+              windows << [x0, x1, sill, top, o]
             end
           end
           doors.sort_by! { |d| d[0] }
@@ -2522,11 +2562,11 @@ module SU_MCP
             outline << pt.call(x_max, 0) << pt.call(x_max, h) << pt.call(x_min, h)
             ents.add_face(outline)
 
-            windows.each do |x0, x1, sill, top|
+            windows.each do |x0, x1, sill, top, wo|
               hole = ents.add_face(pt.call(x0, sill), pt.call(x1, sill), pt.call(x1, top), pt.call(x0, top))
               if hole
                 hole.erase!
-                cut_windows << [x0, x1, sill, top]
+                cut_windows << [x0, x1, sill, top, wo]
               else
                 warnings << "window on #{id} at #{x0}: could not be cut"
               end
@@ -2538,9 +2578,45 @@ module SU_MCP
           group.transform!(placement)
           wall_count += 1
 
+          # Frame (kusen) size for one opening, or nil when it gets none: switched
+          # off, or the opening is too small to leave a usable clear opening.
+          frame_for = lambda do |o, width, height|
+            return nil if o.key?("frame") && !o["frame"]
+            return nil if spec.key?("frames") && !spec["frames"]
+            fw = (o["frame_width"] || spec["frame_width"] || 0.06).to_f
+            fd = (o["frame_depth"] || spec["frame_depth"] || [0.12, t].min).to_f
+            return nil if width - 2 * fw < 0.15 || height - 2 * fw < 0.15
+            [fw, fd]
+          end
+          wood = [140, 95, 60]
+
           doors.each_with_index do |(x0, x1, top, o), n|
             door_count += 1
             next unless infill
+            unit = root.entities.add_group
+            unit.name = "Pintu #{id}-#{n + 1}"
+
+            frame = frame_for.call(o, x1 - x0, top)
+            if frame
+              fw, fd = frame
+              Standards.element("Kusen", :pintu, unit) { |ents| ring.call(ents, x0, x1, 0, top, fw, y_mid, fd, true) }
+              lx0 = x0 + fw
+              lx1 = x1 - fw
+              leaf_top = top - fw
+              face_left = y_mid + fd / 2.0
+              face_right = y_mid - fd / 2.0
+              leaf_t = 0.035
+            else
+              lx0 = x0
+              lx1 = x1
+              leaf_top = top
+              face_left = y_far
+              face_right = y_near
+              leaf_t = 0.04
+            end
+            width = lx1 - lx0
+            panelled = (o["style"] || spec["door_style"] || "panel").to_s == "panel"
+
             hinge = o["hinge"].to_s
             swing = o["swing"].to_s
             if !hinge.empty? || !swing.empty?
@@ -2551,38 +2627,73 @@ module SU_MCP
                 hinge = swing = ""
               end
             end
+
             if hinge.empty?
               # No swing given: a closed leaf in the middle of the wall.
-              leaf = Standards.element("Pintu #{id}-#{n + 1}", :pintu, root) { |ents| panel.call(ents, x0, x1, 0, top, y_mid, 0.04) }
-              leaf.transform!(placement)
-              next
+              Standards.element("Daun", :pintu, unit) do |ents|
+                panel.call(ents, lx0, lx1, 0, leaf_top, y_mid, leaf_t)
+                recess.call(ents, lx0, lx1, leaf_top, y_mid, leaf_t) if panelled
+              end
+            else
+              # The leaf is hinged on the jamb nearer `from` (start) or `to` (end),
+              # flush with the frame face of the side it opens to, and drawn open.
+              at_start = hinge == "start"
+              to_left = swing == "left"
+              open = (o["open"] || 90).to_f
+              closed_angle = at_start ? 0.0 : 180.0
+              turn = at_start == to_left ? open : -open
+              pivot = Geom::Transformation.new(Geom::Point3d.new((at_start ? lx0 : lx1).m, (to_left ? face_left : face_right).m, 0))
+              yc = at_start == to_left ? -leaf_t / 2.0 : leaf_t / 2.0
+              leaf = Standards.element("Daun", :pintu, unit) do |ents|
+                panel.call(ents, 0, width, 0, leaf_top, yc, leaf_t)
+                recess.call(ents, 0, width, leaf_top, yc, leaf_t) if panelled
+              end
+              leaf.transform!(pivot * Geom::Transformation.rotation(ORIGIN, Z_AXIS, (closed_angle + turn).degrees))
+              # Swing arc on the floor, the way a plan shows a door.
+              angles = [closed_angle, closed_angle + turn].sort.map(&:degrees)
+              arc = Standards.element("Ayun", :pintu, unit) do |ents|
+                ents.add_arc(Geom::Point3d.new(0, 0, 0.005.m), X_AXIS, Z_AXIS, width.m, angles[0], angles[1], 16)
+              end
+              arc.transform!(pivot)
             end
-
-            # The leaf is hinged on the jamb nearer `from` (start) or `to` (end),
-            # on the wall face of the side it opens to, and drawn open.
-            at_start = hinge == "start"
-            to_left = swing == "left"
-            width = x1 - x0
-            open = (o["open"] || 90).to_f
-            closed_angle = at_start ? 0.0 : 180.0
-            turn = at_start == to_left ? open : -open
-            pivot = placement * Geom::Transformation.new(Geom::Point3d.new((at_start ? x0 : x1).m, (to_left ? y_far : y_near).m, 0))
-            leaf = Standards.element("Pintu #{id}-#{n + 1}", :pintu, root) do |ents|
-              panel.call(ents, 0, width, 0, top, at_start == to_left ? -0.02 : 0.02, 0.04)
-            end
-            leaf.transform!(pivot * Geom::Transformation.rotation(ORIGIN, Z_AXIS, (closed_angle + turn).degrees))
-            # Swing arc on the floor, the way a plan shows a door.
-            angles = [closed_angle, closed_angle + turn].sort.map(&:degrees)
-            arc = Standards.element("Ayun Pintu #{id}-#{n + 1}", :pintu, root) do |ents|
-              ents.add_arc(Geom::Point3d.new(0, 0, 0.005.m), X_AXIS, Z_AXIS, width.m, angles[0], angles[1], 16)
-            end
-            arc.transform!(pivot)
+            unit.transform!(placement)
           end
-          cut_windows.each_with_index do |(x0, x1, sill, top), n|
+
+          cut_windows.each_with_index do |(x0, x1, sill, top, o), n|
             window_count += 1
             next unless infill
-            pane = Standards.element("Jendela #{id}-#{n + 1}", :jendela, root) { |ents| panel.call(ents, x0, x1, sill, top, y_mid, 0.01) }
-            pane.transform!(placement)
+            unit = root.entities.add_group
+            unit.name = "Jendela #{id}-#{n + 1}"
+
+            frame = frame_for.call(o, x1 - x0, top - sill)
+            if frame.nil?
+              Standards.element("Kaca", :jendela, unit) { |ents| panel.call(ents, x0, x1, sill, top, y_mid, 0.01) }
+            else
+              fw, fd = frame
+              Standards.element("Kusen", :jendela, unit, "Jendela - Kayu", wood) { |ents| ring.call(ents, x0, x1, sill, top, fw, y_mid, fd, false) }
+              cx0 = x0 + fw
+              cx1 = x1 - fw
+              cz0 = sill + fw
+              cz1 = top - fw
+              clear = cx1 - cx0
+              leaves = o["leaves"] ? o["leaves"].to_i : (clear <= 0.75 ? 1 : (clear <= 1.5 ? 2 : 3))
+              if o["fixed"] || leaves <= 0
+                # Fixed light: the glass sits straight in the frame.
+                Standards.element("Kaca", :jendela, unit) { |ents| panel.call(ents, cx0, cx1, cz0, cz1, y_mid, 0.005) }
+              else
+                part = clear / leaves
+                leaves.times do |i|
+                  sx0 = cx0 + i * part
+                  sx1 = sx0 + part
+                  # Sash rail width, kept in proportion on small windows.
+                  sw = [0.07, part / 4.0, (cz1 - cz0) / 4.0].min
+                  suffix = leaves > 1 ? " #{i + 1}" : ""
+                  Standards.element("Daun#{suffix}", :jendela, unit, "Jendela - Kayu", wood) { |ents| ring.call(ents, sx0, sx1, cz0, cz1, sw, y_mid, 0.03, false) }
+                  Standards.element("Kaca#{suffix}", :jendela, unit) { |ents| panel.call(ents, sx0 + sw, sx1 - sw, cz0 + sw, cz1 - sw, y_mid, 0.005) }
+                end
+              end
+            end
+            unit.transform!(placement)
           end
         end
 

@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger("SketchupMCPServer")
 
 # Define version directly to avoid pkg_resources dependency
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 logger.info(f"SketchupMCP Server version {__version__} starting up")
 
 @dataclass
@@ -481,8 +481,14 @@ def build_floor_plan(
       "slab": {"outline": [[0, 0], [6, 0], [6, 4], [0, 4]], "thickness": 0.12}
     }
     An opening with no "sill" (or sill 0) is a door; with a sill it is a window.
-    Doors get a 4 cm leaf and windows a 1 cm glass pane ("infill": false for
-    plain holes). Walls and slab accept "material": "Dinding - Bata Ekspos".
+    Every opening becomes one unit (a container group "Pintu W1-1" or
+    "Jendela W1-1"): doors get a 6/12 cm frame (Kusen) and a 3.5 cm leaf
+    (Daun, "style": "panel" or "polos"); windows get a frame, sashes with
+    glass ("leaves": n) or fixed glass ("fixed": true). The opening size is
+    the hole in the wall, i.e. the OUTSIDE of the frame, so a 0.90 m door
+    has a 0.78 m leaf. "frame_width"/"frame_depth" change the frame,
+    "frame": false drops it, "infill": false leaves plain holes.
+    Walls and slab accept "material": "Dinding - Bata Ekspos".
     Door swing: add "hinge": "start" | "end" (the jamb nearer the wall's
     `from` or `to`) and "swing": "left" | "right" (the side of the wall it
     opens into, as seen walking from `from` to `to`). The leaf is then drawn

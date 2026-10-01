@@ -20,11 +20,11 @@ if (Test-Path $suBase) {
         $main = Join-Path $_.FullName 'SketchUp\Plugins\su_mcp\main.rb'
         if (Test-Path $main) {
             $text = [System.IO.File]::ReadAllText($main)
-            if ($text -match 'accept_nonblock' -and $text -match 'module Plan') {
+            if ($text -match 'accept_nonblock' -and $text -match 'frame_for = lambda') {
                 Pass "Extension (patched) present for $($_.Name)"
                 $script:found = $true
             } elseif ($text -match 'accept_nonblock') {
-                Fail "Extension for $($_.Name) is an older build (no plan view)" 'Run install.ps1 again, then restart SketchUp.'
+                Fail "Extension for $($_.Name) is an older build (no door and window frames)" 'Run install.ps1 again, then restart SketchUp.'
                 $script:found = $true
             } else {
                 Fail "Extension for $($_.Name) is the ORIGINAL unpatched version (it freezes SketchUp)" 'Run install.ps1 again.'

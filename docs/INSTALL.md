@@ -86,7 +86,7 @@ Di percakapan **baru** di Claude Desktop, tool `sketchup` harus muncul di daftar
    - `Built 'Lantai 1': 8 walls, 4 doors, 7 windows, 1 slab. Size 6.0 x 6.0 x 3.12 m`
    - `VERIFY OK. 10 of 10 dimensions match the plan within 5 mm.`
    - `Plan view 'Denah Lantai 1' created` dengan `10 dimensions`, dan gambar denahnya ditunjukkan ke pengguna
-4. **Audit.** `SU_MCP.audit_model` lewat `eval_ruby` harus menjawab `AUDIT OK. 27 elements and 2 containers checked. All rules satisfied.`
+4. **Audit.** `SU_MCP.audit_model` lewat `eval_ruby` harus menjawab `AUDIT OK. 56 elements and 13 containers checked. All rules satisfied.`
 
 Kalau keempatnya berhasil, pemasangan selesai. Tunjukkan gambarnya ke pengguna. Model contoh boleh dihapus (hapus grup `Rumah Contoh`) atau disimpan sebagai acuan.
 
