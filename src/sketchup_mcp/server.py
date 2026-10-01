@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger("SketchupMCPServer")
 
 # Define version directly to avoid pkg_resources dependency
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 logger.info(f"SketchupMCP Server version {__version__} starting up")
 
 @dataclass
@@ -272,6 +272,10 @@ mcp = FastMCP(
         "dinding, lantai, pintu, jendela, atap, struktur, tangga, furnitur, tapak or referensi, "
         "get the building container with SU_MCP.container(name), and finish with SU_MCP.audit_model "
         "(it must answer AUDIT OK). "
+        "Accuracy workflow for a dimensioned plan: 1) check_dimension_chains on every dimension string and "
+        "settle conflicts with the user BEFORE modelling; 2) build_floor_plan, giving each wall the reference "
+        "the plan dimensions are measured to (ref center/left/right); 3) verify_dimensions against the plan "
+        "and report the result to the user. "
         "Check your work with export_scene(format='png') and look at the image."
     ),
     lifespan=server_lifespan
@@ -464,7 +468,8 @@ def build_floor_plan(
       "wall_height": 3.0,            # default height
       "wall_thickness": 0.15,        # default thickness
       "base_z": 0,                   # floor level (use 3.2 etc. for upper floors)
-      "walls": [                     # centrelines
+      "wall_ref": "center",          # default for "ref" below
+      "walls": [                     # from/to line of each wall, see "ref"
         {"id": "W1", "from": [0, 0], "to": [6, 0]},
         {"id": "W2", "from": [6, 0], "to": [6, 4], "thickness": 0.1, "height": 2.8}
       ],
@@ -477,11 +482,21 @@ def build_floor_plan(
     An opening with no "sill" (or sill 0) is a door; with a sill it is a window.
     Doors get a 4 cm leaf and windows a 1 cm glass pane ("infill": false for
     plain holes). Walls and slab accept "material": "Dinding - Bata Ekspos".
-    Wall ends are extended by half the thickness so corners close; pass
-    "extend": false on a wall to switch that off.
+    "ref" on a wall says what its from/to line is: "center" (centreline,
+    the default), "left" or "right" (that face of the wall, as seen walking
+    from `from` to `to`; the wall body lies on the other side). Use the one
+    the plan is dimensioned to, or the error equals the wall thickness:
+    - outside dimensions of the building: trace the outline anticlockwise
+      with "ref": "right";
+    - clear (inside) dimensions of a room: trace the room anticlockwise
+      with "ref": "left";
+    - grid/axis dimensions: "center".
+    Where walls meet, their ends are lengthened or trimmed automatically so
+    corners close and walls do not overlap ("extend": false, a number, or
+    [start, end] in metres overrides that for one wall).
     The whole plan is one undo step. The reply reports the built size and any
     opening that was skipped (for example because it does not fit the wall):
-    read it, then verify with export_scene(format="png").
+    read it, then call verify_dimensions and look at export_scene(format="png").
     """
     try:
         sketchup = get_sketchup_connection()
@@ -496,6 +511,90 @@ def build_floor_plan(
         return json.dumps(result)
     except Exception as e:
         return f"Error building floor plan: {str(e)}"
+
+@mcp.tool()
+def check_dimension_chains(
+    chains: List[Dict[str, Any]],
+    tolerance: float = 0.005
+) -> str:
+    """Check that the dimension strings on a plan add up, BEFORE modelling.
+
+    chains = [
+      {"label": "Sisi depan", "segments": [1.0, 0.9, 0.5, 1.5, 2.1], "total": 6.0},
+      {"label": "Sisi kiri",  "segments": [3.0, 3.0], "total": 6.0}
+    ]
+    All numbers in metres. For every chain the segments are summed and compared
+    with the overall dimension. Does not need SketchUp. If any chain is in
+    conflict, show the user which one and ask which number wins; do not guess.
+    """
+    lines = []
+    conflicts = 0
+    for i, chain in enumerate(chains or []):
+        label = str(chain.get("label") or f"chain {i + 1}")
+        try:
+            segments = [float(v) for v in chain.get("segments") or []]
+            total = float(chain["total"])
+        except (KeyError, TypeError, ValueError):
+            conflicts += 1
+            lines.append(f"TIDAK LENGKAP  {label}: needs \"segments\" (list of numbers) and \"total\"")
+            continue
+        added = sum(segments)
+        diff = added - total
+        parts = " + ".join(f"{v:g}" for v in segments)
+        if abs(diff) <= tolerance:
+            lines.append(f"OK             {label}: {parts} = {added:.3f} m, overall {total:.3f} m")
+        else:
+            conflicts += 1
+            lines.append(
+                f"KONFLIK        {label}: {parts} = {added:.3f} m, but overall says {total:.3f} m "
+                f"({diff * 1000:+.0f} mm)"
+            )
+    if not lines:
+        return "CHAINS FAILED. No chains given."
+    if conflicts:
+        head = (f"CHAINS CONFLICT. {conflicts} of {len(lines)} dimension strings do not add up. "
+                "Ask the user which number is right before modelling.")
+    else:
+        head = f"CHAINS OK. All {len(lines)} dimension strings add up within {tolerance * 1000:.0f} mm."
+    return head + "\n" + "\n".join(lines)
+
+@mcp.tool()
+def verify_dimensions(
+    ctx: Context,
+    checks: List[Dict[str, Any]],
+    tolerance: float = 0.005
+) -> str:
+    """Measure the model in SketchUp and compare it with the plan (accuracy report).
+
+    checks (metres) can mix three kinds:
+      {"label": "Panjang luar", "overall": "x", "expected": 6.0}
+          outside size of all walls along x or y; optional "building" and
+          "floor" (group names) limit which walls are counted
+      {"label": "Kamar tidur 1", "at": [1.5, 4.5], "expected": [2.8, 2.8]}
+          clear room size through that point: [along x, along y]
+      {"label": "Lebar koridor", "at": [3, 2], "axis": "y", "expected": 1.2}
+          one clear distance; axis is "x", "y" or an angle in degrees
+    "at" is any point inside the room, away from the walls. Clear distances
+    are measured between wall faces (doors, glass and furniture are ignored;
+    openings do not fool it). Add "z" (floor level) for upper floors. Leave
+    "expected" out to just read a dimension.
+    Every line is OK or SELISIH with the difference in mm. Run this after
+    build_floor_plan with the key dimensions from the plan, fix what differs,
+    and pass the report on to the user.
+    """
+    try:
+        sketchup = get_sketchup_connection()
+        result = sketchup.send_command(
+            method="tools/call",
+            params={
+                "name": "verify_dimensions",
+                "arguments": {"checks": checks, "tolerance": tolerance}
+            },
+            request_id=ctx.request_id
+        )
+        return json.dumps(result)
+    except Exception as e:
+        return f"Error verifying dimensions: {str(e)}"
 
 @mcp.tool()
 def eval_ruby(

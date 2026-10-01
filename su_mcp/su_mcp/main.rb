@@ -159,6 +159,144 @@ module SU_MCP
     end
   end
 
+  # Measures the built model so it can be compared with the plan's dimensions.
+  # See docs/MODELING.md ("Laporan akurasi").
+  module Verify
+    WALL_TAG = Standards::TABLE['dinding'][0]
+
+    # Distance (inches) from origin along dir to the first wall face. Anything
+    # that is not a wall (door leaf, glass, furniture, slab) is stepped over.
+    def self.wall_hit(model, origin, dir)
+      point = origin
+      25.times do
+        hit = model.raytest([point, dir], false)
+        return nil unless hit
+        hit_point, path = hit
+        if path.any? { |e| e.respond_to?(:layer) && e.layer && e.layer.name == WALL_TAG }
+          return origin.distance(hit_point).to_f
+        end
+        point = hit_point.offset(dir, 0.01)
+      end
+      nil
+    end
+
+    # Heights above the floor at which a measuring ray is cast. A single ray
+    # would slip through a door or window opening and report the next room's
+    # wall, so the nearest wall face found at any of these heights is used.
+    RAY_HEIGHTS = [0.05, 0.5, 1.0, 1.5, 2.0, 2.3, 2.6, 2.9].freeze
+
+    # Clear distance in metres between the two wall faces either side of [x, y].
+    def self.clear(model, x, y, z, angle)
+      dir = Geom::Vector3d.new(Math.cos(angle), Math.sin(angle), 0)
+      back = dir.reverse
+      ahead = nil
+      behind = nil
+      RAY_HEIGHTS.each do |h|
+        origin = Geom::Point3d.new(x.to_f.m, y.to_f.m, (z.to_f + h).m)
+        a = wall_hit(model, origin, dir)
+        b = wall_hit(model, origin, back)
+        ahead = a if a && (ahead.nil? || a < ahead)
+        behind = b if b && (behind.nil? || b < behind)
+      end
+      return nil unless ahead && behind
+      (ahead + behind).to_m
+    end
+
+    # World-space extent in metres of all walls, optionally limited to groups
+    # under a container with the given building and/or floor name.
+    def self.overall(model, axis, building, floor)
+      low = nil
+      high = nil
+      walk = lambda do |entities, tr, names|
+        entities.each do |e|
+          next unless e.is_a?(Sketchup::Group) || e.is_a?(Sketchup::ComponentInstance)
+          inner = e.is_a?(Sketchup::Group) ? e.entities : e.definition.entities
+          here = names + [e.name.to_s]
+          if e.layer.name == WALL_TAG
+            next if building && !here.include?(building.to_s)
+            next if floor && !here.include?(floor.to_s)
+            box = e.bounds
+            8.times do |i|
+              corner = box.corner(i).transform(tr)
+              value = axis == 1 ? corner.y : corner.x
+              low = value if low.nil? || value < low
+              high = value if high.nil? || value > high
+            end
+          else
+            walk.call(inner, tr * e.transformation, here)
+          end
+        end
+      end
+      walk.call(model.entities, Geom::Transformation.new, [])
+      low ? (high - low).to_f.to_m : nil
+    end
+
+    def self.angle_of(axis)
+      case axis
+      when nil, "x", "X" then 0.0
+      when "y", "Y" then Math::PI / 2
+      else axis.to_f * Math::PI / 180
+      end
+    end
+
+    def self.report(checks, tolerance = nil)
+      model = Sketchup.active_model
+      return "VERIFY FAILED. No model is open." unless model
+      tolerance = (tolerance || 0.005).to_f
+      rows = []
+      (checks || []).each do |c|
+        label = (c["label"] || "ukuran").to_s
+        if c["overall"]
+          axis = c["overall"].to_s.downcase == "y" ? 1 : 0
+          rows << [label, c["expected"], overall(model, axis, c["building"], c["floor"])]
+        elsif c["at"]
+          x, y = c["at"]
+          z = c["z"] || 0
+          if c["expected"].is_a?(Array) || (c["expected"].nil? && c["axis"].nil?)
+            want = c["expected"] || [nil, nil]
+            rows << ["#{label} (arah x)", want[0], clear(model, x, y, z, 0.0)]
+            rows << ["#{label} (arah y)", want[1], clear(model, x, y, z, Math::PI / 2)]
+          else
+            rows << [label, c["expected"], clear(model, x, y, z, angle_of(c["axis"]))]
+          end
+        else
+          rows << [label, c["expected"], nil]
+        end
+      end
+      return "VERIFY FAILED. No checks given." if rows.empty?
+
+      good = 0
+      compared = 0
+      lines = rows.map do |label, expected, measured|
+        if measured.nil?
+          compared += 1 if expected
+          "TIDAK TERUKUR  #{label}: no wall found on both sides (move the point, or check the model)"
+        elsif expected.nil?
+          "UKUR           #{label}: model #{format('%.3f', measured)} m"
+        else
+          compared += 1
+          diff = measured - expected.to_f
+          ok = diff.abs <= tolerance
+          good += 1 if ok
+          "#{ok ? 'OK            ' : 'SELISIH       '} #{label}: plan #{format('%.3f', expected.to_f)} m, " \
+            "model #{format('%.3f', measured)} m (#{format('%+d', (diff * 1000).round)} mm)"
+        end
+      end
+      head = if compared.zero?
+               "VERIFY: #{rows.length} dimension(s) measured, nothing to compare."
+             elsif good == compared
+               "VERIFY OK. #{good} of #{compared} dimensions match the plan within #{(tolerance * 1000).round} mm."
+             else
+               "VERIFY FAILED. #{good} of #{compared} dimensions match the plan within #{(tolerance * 1000).round} mm."
+             end
+      head + "\n" + lines.join("\n")
+    end
+  end
+
+  def self.verify_dimensions(checks, tolerance = nil)
+    Verify.report(checks, tolerance)
+  end
+
   def self.tag(kind)
     Standards.tag(kind)
   end
@@ -440,6 +578,8 @@ module SU_MCP
           create_finger_joint(args)
         when "build_floor_plan"
           build_floor_plan(args)
+        when "verify_dimensions"
+          verify_dimensions(args)
         when "eval_ruby"
           eval_ruby(args)
         else
@@ -2029,17 +2169,23 @@ module SU_MCP
     # Each wall is drawn as its elevation (length x height, with the openings
     # already cut out of the outline) and then extruded by its thickness, so no
     # boolean/solid tools are needed and it works in every SketchUp edition.
+    #
+    # A wall's from/to line is its centreline ("ref": "center"), its left face
+    # ("left") or its right face ("right"), left and right as seen walking from
+    # `from` to `to`. Wall ends are lengthened or trimmed automatically where
+    # walls meet, so corners close and walls never overlap.
     def build_floor_plan(params)
       spec = params["spec"] || params
       spec = JSON.parse(spec) if spec.is_a?(String)
       model = Sketchup.active_model
       raise "No model is open in SketchUp" unless model
 
-      walls = spec["walls"] || []
-      raise "spec.walls is empty" if walls.empty?
+      wall_specs = spec["walls"] || []
+      raise "spec.walls is empty" if wall_specs.empty?
 
       default_h = (spec["wall_height"] || 3.0).to_f
       default_t = (spec["wall_thickness"] || 0.15).to_f
+      default_ref = (spec["wall_ref"] || "center").to_s
       base_z = (spec["base_z"] || 0).to_f
       name = (spec["name"] || "Denah").to_s
       openings = spec["openings"] || []
@@ -2050,9 +2196,79 @@ module SU_MCP
       window_count = 0
       has_slab = false
 
-      # Extrude a rectangle of the wall elevation into a thin panel.
-      panel = lambda do |ents, x0, x1, z0, z1, thickness|
-        y = (-thickness / 2.0).m
+      # --- pass 1: wall geometry in plan, all in metres -----------------------
+      walls = []
+      wall_specs.each_with_index do |w, i|
+        id = (w["id"] || "W#{i + 1}").to_s
+        a = [w["from"][0].to_f, w["from"][1].to_f]
+        b = [w["to"][0].to_f, w["to"][1].to_f]
+        t = (w["thickness"] || default_t).to_f
+        dx = b[0] - a[0]
+        dy = b[1] - a[1]
+        len = Math.sqrt(dx * dx + dy * dy)
+        if len < 0.01
+          warnings << "#{id}: zero length, skipped"
+          next
+        end
+        ref = (w["ref"] || default_ref).to_s
+        # Body extent across the wall, measured along its left normal.
+        side = case ref
+               when "center", "centre" then [-t / 2.0, t / 2.0]
+               when "left" then [-t, 0.0]
+               when "right" then [0.0, t]
+               else raise "#{id}: ref must be \"center\", \"left\" or \"right\", got #{ref.inspect}"
+               end
+        dir = [dx / len, dy / len]
+        walls << {
+          index: walls.length, id: id, a: a, b: b, t: t, len: len, spec: w,
+          h: (w["height"] || default_h).to_f,
+          dir: dir, nrm: [-dir[1], dir[0]], side: side
+        }
+      end
+      raise "spec.walls has no usable wall" if walls.empty?
+
+      # How far one end of a wall must be lengthened (+) or trimmed (-) to meet
+      # the walls it touches: up to the near face of a wall it runs into (T), and
+      # at a corner (L) one wall takes the corner while the other stops short.
+      join = lambda do |wall, at_start|
+        p = at_start ? wall[:a] : wall[:b]
+        u = at_start ? [-wall[:dir][0], -wall[:dir][1]] : wall[:dir]
+        tee = nil
+        corner = nil
+        walls.each do |other|
+          next if other.equal?(wall)
+          rel = [p[0] - other[:a][0], p[1] - other[:a][1]]
+          along = rel[0] * other[:dir][0] + rel[1] * other[:dir][1]
+          across = rel[0] * other[:nrm][0] + rel[1] * other[:nrm][1]
+          next if across.abs > 0.002 || along < -0.002 || along > other[:len] + 0.002
+          c = other[:nrm][0] * u[0] + other[:nrm][1] * u[1]
+          next if c.abs < 0.2 # (nearly) parallel: a continuation, not a junction
+          reach = other[:side].map { |y| y / c }
+          if along < 0.002 || along > other[:len] - 0.002
+            corner ||= wall[:index] < other[:index] ? reach.max : reach.min
+          else
+            tee ||= reach.min
+          end
+        end
+        tee || corner || 0.0
+      end
+
+      walls.each do |wall|
+        e = wall[:spec]["extend"]
+        wall[:ext] = if e == false
+                       [0.0, 0.0]
+                     elsif e.is_a?(Numeric)
+                       [e.to_f, e.to_f]
+                     elsif e.is_a?(Array)
+                       [e[0].to_f, e[1].to_f]
+                     else
+                       [join.call(wall, true), join.call(wall, false)]
+                     end
+      end
+
+      # Extrude a rectangle of the wall elevation into a thin panel centred on yc.
+      panel = lambda do |ents, x0, x1, z0, z1, yc, thickness|
+        y = (yc - thickness / 2.0).m
         face = ents.add_face(
           Geom::Point3d.new(x0.m, y, z0.m), Geom::Point3d.new(x1.m, y, z0.m),
           Geom::Point3d.new(x1.m, y, z1.m), Geom::Point3d.new(x0.m, y, z1.m)
@@ -2060,6 +2276,7 @@ module SU_MCP
         face.pushpull(face.normal.y > 0 ? thickness.m : -thickness.m)
       end
 
+      # --- pass 2: geometry ---------------------------------------------------
       previous_layer = model.active_layer
       model.start_operation("MCP: #{name}", true)
       begin
@@ -2069,27 +2286,21 @@ module SU_MCP
         target = building.empty? ? model.active_entities : Standards.container(building).entities
         root = target.add_group
         root.name = name
-        known_ids = []
+        known_ids = walls.map { |w| w[:id] }
 
-        walls.each_with_index do |w, i|
-          id = (w["id"] || "W#{i + 1}").to_s
-          known_ids << id
-          a = w["from"]
-          b = w["to"]
-          t = (w["thickness"] || default_t).to_f
-          h = (w["height"] || default_h).to_f
-          dx = b[0].to_f - a[0].to_f
-          dy = b[1].to_f - a[1].to_f
-          len = Math.sqrt(dx * dx + dy * dy)
-          if len < 0.01
-            warnings << "#{id}: zero length, skipped"
+        walls.each do |wall|
+          id = wall[:id]
+          t = wall[:t]
+          h = wall[:h]
+          len = wall[:len]
+          x_min = -wall[:ext][0]
+          x_max = len + wall[:ext][1]
+          if x_max - x_min < 0.02
+            warnings << "#{id}: nothing left after trimming at the junctions, skipped"
             next
           end
-          # Walls are given as centrelines. Extending both ends by half the
-          # thickness closes the square gap that would otherwise show at corners.
-          ext = (w.key?("extend") && !w["extend"]) ? 0.0 : t / 2.0
-          x_min = -ext
-          x_max = len + ext
+          y_near, y_far = wall[:side]
+          y_mid = (y_near + y_far) / 2.0
 
           doors = []
           windows = []
@@ -2103,7 +2314,7 @@ module SU_MCP
             if o["width"].to_f <= 0 || o["height"].to_f <= 0
               warnings << "#{label}: width/height must be > 0, skipped"
             elsif x0 < x_min + 0.02 || x1 > x_max - 0.02
-              warnings << "#{label}: does not fit in the wall length (#{len.round(3)} m), skipped"
+              warnings << "#{label}: does not fit in the wall (it runs from #{x_min.round(3)} to #{x_max.round(3)} m measured from its `from` point), skipped"
             elsif top > h - 0.02
               warnings << "#{label}: top (#{top} m) reaches the wall height (#{h} m), skipped"
             elsif sill <= 0.001
@@ -2123,12 +2334,12 @@ module SU_MCP
           end
           doors = kept
 
-          placement = Geom::Transformation.new(Geom::Point3d.new(a[0].to_f.m, a[1].to_f.m, base_z.m)) *
-                      Geom::Transformation.rotation(ORIGIN, Z_AXIS, Math.atan2(dy, dx))
+          placement = Geom::Transformation.new(Geom::Point3d.new(wall[:a][0].m, wall[:a][1].m, base_z.m)) *
+                      Geom::Transformation.rotation(ORIGIN, Z_AXIS, Math.atan2(wall[:dir][1], wall[:dir][0]))
 
           cut_windows = []
-          wall = Standards.element("Dinding #{id}", :dinding, root, w["material"]) do |ents|
-            y = (-t / 2.0).m
+          group = Standards.element("Dinding #{id}", :dinding, root, wall[:spec]["material"]) do |ents|
+            y = y_near.m
             pt = lambda { |x, z| Geom::Point3d.new(x.m, y, z.m) }
             outline = [pt.call(x_min, 0)]
             doors.each do |x0, x1, top|
@@ -2150,19 +2361,19 @@ module SU_MCP
             face = ents.grep(Sketchup::Face).max_by { |f| f.area }
             face.pushpull(face.normal.y > 0 ? t.m : -t.m)
           end
-          wall.transform!(placement)
+          group.transform!(placement)
           wall_count += 1
 
           doors.each_with_index do |(x0, x1, top), n|
             door_count += 1
             next unless infill
-            leaf = Standards.element("Pintu #{id}-#{n + 1}", :pintu, root) { |ents| panel.call(ents, x0, x1, 0, top, 0.04) }
+            leaf = Standards.element("Pintu #{id}-#{n + 1}", :pintu, root) { |ents| panel.call(ents, x0, x1, 0, top, y_mid, 0.04) }
             leaf.transform!(placement)
           end
           cut_windows.each_with_index do |(x0, x1, sill, top), n|
             window_count += 1
             next unless infill
-            pane = Standards.element("Jendela #{id}-#{n + 1}", :jendela, root) { |ents| panel.call(ents, x0, x1, sill, top, 0.01) }
+            pane = Standards.element("Jendela #{id}-#{n + 1}", :jendela, root) { |ents| panel.call(ents, x0, x1, sill, top, y_mid, 0.01) }
             pane.transform!(placement)
           end
         end
@@ -2195,13 +2406,18 @@ module SU_MCP
 
       model.active_view.zoom_extents
       bb = root.bounds
-      size = [bb.width, bb.height, bb.depth].map { |v| v.to_m.round(2) }
+      size = [bb.width, bb.height, bb.depth].map { |v| v.to_m.round(3) }
       summary = "Built '#{name}': #{wall_count} walls, #{door_count} doors, #{window_count} windows" \
                 "#{has_slab ? ", 1 slab" : ""}. Size #{size[0]} x #{size[1]} x #{size[2]} m (x, y, z). " \
-                "Group entityID #{root.entityID}. Tags and materials follow the standard; " \
-                "run SU_MCP.audit_model through eval_ruby after adding anything else."
+                "Group entityID #{root.entityID}. Next: verify_dimensions against the plan, " \
+                "then SU_MCP.audit_model after adding anything else."
       summary += " Warnings: " + warnings.join("; ") unless warnings.empty?
       { success: true, id: root.entityID, result: summary }
+    end
+
+    # Measure the model and compare with the dimensions on the plan.
+    def verify_dimensions(params)
+      { success: true, result: Verify.report(params["checks"] || [], params["tolerance"]) }
     end
 
     def eval_ruby(params)

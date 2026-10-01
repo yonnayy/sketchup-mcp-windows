@@ -17,6 +17,9 @@ Dasar: [mhyrr/sketchup-mcp](https://github.com/mhyrr/sketchup-mcp) pada commit `
 - **`build_floor_plan`**: denah dalam meter menjadi dinding solid dengan bukaan, daun pintu, kaca jendela, dan pelat lantai, dalam satu langkah undo. Tidak butuh Solid Tools, jadi jalan di semua edisi SketchUp.
 - **Aturan dasar model** ([docs/STANDARDS.md](docs/STANDARDS.md)): tag baku bernomor, material bernama `Elemen - Bahan` yang dipasang di grup, geometri mentah Untagged, susunan bangunan > lantai > elemen. `build_floor_plan` mengikutinya dengan sendirinya; untuk `eval_ruby` ada helper `SU_MCP.container`, `SU_MCP.element`, `SU_MCP.tag`, `SU_MCP.material`.
 - **`SU_MCP.audit_model`**: memeriksa seluruh model terhadap aturan itu dan menyebut tiap pelanggaran.
+- **Acuan ukuran dinding** (`ref`): garis dinding bisa berarti garis as, muka kiri, atau muka kanan, sehingga denah yang diberi ukuran luar atau ukuran bersih ruang bisa dimasukkan apa adanya. Ujung dinding dipanjangkan atau dipotong otomatis di setiap sudut dan pertemuan T, tanpa tumpang-tindih.
+- **`check_dimension_chains`**: sebelum memodelkan, memeriksa apakah deret ukuran di denah cocok dengan ukuran totalnya.
+- **`verify_dimensions`**: sesudah memodelkan, mengukur model yang sudah jadi (ukuran luar dan ukuran bersih ruang, dengan sinar ukur di beberapa ketinggian supaya bukaan pintu tidak mengacaukan hasil) dan membandingkannya dengan denah.
 - **Server menyala otomatis** saat SketchUp dibuka (bisa dimatikan di **Extensions > MCP Server > Auto-start on Launch**), plus menu **Status**.
 - **`install.ps1` dan `check.ps1`** untuk Windows: pasang dan periksa dengan satu perintah.
 - Deskripsi tool ditulis ulang supaya model AI tahu soal satuan inci, arah `pushpull` di z = 0, dan geseran relatif.
@@ -31,7 +34,7 @@ Dasar: [mhyrr/sketchup-mcp](https://github.com/mhyrr/sketchup-mcp) pada commit `
 
 ## Pengujian
 
-- `tests/mock_roundtrip.py`: tanpa SketchUp. Sepuluh panggilan berturut-turut, setiap jawaban harus cocok dengan permintaannya.
-- `tests/live_floor_plan.py`: dengan SketchUp terbuka. Membangun rumah dua ruang (5 dinding, 2 pintu, 4 jendela, 1 pelat) plus atap, memeriksa bahwa semua elemen solid dan audit lolos, memastikan audit menangkap pelanggaran yang sengaja dibuat, lalu mengekspor PNG.
+- `tests/mock_roundtrip.py`: tanpa SketchUp. Cek rantai dimensi (satu cocok, satu bentrok), lalu sepuluh panggilan berturut-turut yang setiap jawabannya harus cocok dengan permintaannya.
+- `tests/live_floor_plan.py`: dengan SketchUp terbuka. Membangun rumah dua ruang (5 dinding, 2 pintu, 4 jendela, 1 pelat) dengan dinding luar beracuan muka luar, memeriksa bahwa ukuran luar persis 7 x 5 m dan ukuran bersih kedua ruang cocok, memastikan ukuran yang sengaja salah tertangkap, menambah atap, memeriksa bahwa semua elemen solid dan audit lolos, memastikan audit menangkap pelanggaran yang sengaja dibuat, lalu mengekspor PNG.
 
 Diuji di Windows 10, SketchUp 2025 (25.0.660), Python 3.10 dan 3.12, `mcp` 1.30.0.

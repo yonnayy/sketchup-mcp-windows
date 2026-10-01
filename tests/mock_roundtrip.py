@@ -76,10 +76,18 @@ async def run() -> int:
             await session.initialize()
             tools = sorted(t.name for t in (await session.list_tools()).tools)
             print("tools:", tools)
-            expected = ["build_floor_plan", "create_component", "delete_component", "eval_ruby",
+            expected = ["build_floor_plan", "check_dimension_chains", "create_component", "delete_component", "eval_ruby",
                         "export_scene", "get_selection", "set_material",
-                        "transform_component"]
+                        "transform_component", "verify_dimensions"]
             assert tools == expected, tools
+            chains = await session.call_tool("check_dimension_chains", {"chains": [
+                {"label": "cocok", "segments": [1.0, 0.9, 0.5, 1.5, 2.1], "total": 6.0},
+                {"label": "bentrok", "segments": [3.0, 2.9], "total": 6.0},
+            ]})
+            report = chains.content[0].text
+            print(report)
+            assert report.startswith("CHAINS CONFLICT. 1 of 2"), report
+            assert "OK             cocok" in report and "KONFLIK        bentrok" in report and "-100 mm" in report, report
             for i in range(5):
                 code = "marker_%d" % i
                 res = await session.call_tool("eval_ruby", {"code": code})

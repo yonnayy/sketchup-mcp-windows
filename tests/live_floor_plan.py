@@ -20,12 +20,13 @@ SPEC = {
     "name": "Lantai 1",
     "wall_height": 3.0,
     "wall_thickness": 0.15,
+    # Outline traced anticlockwise on its OUTSIDE face, partition on its centreline.
     "walls": [
-        {"id": "W1", "from": [0, 0], "to": [7, 0]},
-        {"id": "W2", "from": [7, 0], "to": [7, 5]},
-        {"id": "W3", "from": [7, 5], "to": [0, 5]},
-        {"id": "W4", "from": [0, 5], "to": [0, 0]},
-        {"id": "W5", "from": [4, 0], "to": [4, 5], "thickness": 0.1, "extend": False},
+        {"id": "W1", "from": [0, 0], "to": [7, 0], "ref": "right"},
+        {"id": "W2", "from": [7, 0], "to": [7, 5], "ref": "right"},
+        {"id": "W3", "from": [7, 5], "to": [0, 5], "ref": "right"},
+        {"id": "W4", "from": [0, 5], "to": [0, 0], "ref": "right"},
+        {"id": "W5", "from": [4, 0], "to": [4, 5], "thickness": 0.1},
     ],
     "openings": [
         {"wall": "W1", "type": "door", "offset": 1.0, "width": 0.9, "height": 2.1},
@@ -38,12 +39,29 @@ SPEC = {
     "slab": {"outline": [[0, 0], [7, 0], [7, 5], [0, 5]], "thickness": 0.12},
 }
 
+# The test house is built 50 m east of the origin so it cannot collide with
+# (or be measured against) whatever the open model already contains.
+OX = 50.0
+for _wall in SPEC["walls"]:
+    _wall["from"] = [_wall["from"][0] + OX, _wall["from"][1]]
+    _wall["to"] = [_wall["to"][0] + OX, _wall["to"][1]]
+SPEC["slab"]["outline"] = [[x + OX, y] for x, y in SPEC["slab"]["outline"]]
+
+# Outside 7 x 5 m; rooms are what is left after 0.15 m outer walls and a
+# 0.10 m partition on x = 4. Both rays cross door openings on purpose.
+CHECKS = [
+    {"label": "Panjang luar", "overall": "x", "expected": 7.0, "building": "MCP TEST"},
+    {"label": "Lebar luar", "overall": "y", "expected": 5.0, "building": "MCP TEST"},
+    {"label": "Ruang barat", "at": [OX + 2, 3.4], "expected": [3.8, 4.7]},
+    {"label": "Ruang timur", "at": [OX + 5.5, 3.4], "expected": [2.8, 4.7]},
+]
+
 ROOF = r'''
 model = Sketchup.active_model
 model.start_operation('MCP TEST: atap', true)
 rumah = SU_MCP.container('MCP TEST')
 SU_MCP.element('Atap Datar', :atap, rumah) do |ents|
-  face = ents.add_face([-0.3.m, -0.3.m, 3.m], [7.3.m, -0.3.m, 3.m], [7.3.m, 5.3.m, 3.m], [-0.3.m, 5.3.m, 3.m])
+  face = ents.add_face([49.7.m, -0.3.m, 3.m], [57.3.m, -0.3.m, 3.m], [57.3.m, 5.3.m, 3.m], [49.7.m, 5.3.m, 3.m])
   face.reverse! if face.normal.z < 0
   face.pushpull(0.12.m)
 end
@@ -71,7 +89,7 @@ VIOLATIONS = r'''
 model = Sketchup.active_model
 model.start_operation('MCP TEST: pelanggaran', true)
 g = model.entities.add_group
-g.entities.add_face([20.m, 0, 0], [21.m, 0, 0], [21.m, 1.m, 0], [20.m, 1.m, 0])
+g.entities.add_face([70.m, 0, 0], [71.m, 0, 0], [71.m, 1.m, 0], [70.m, 1.m, 0])
 report = SU_MCP.audit_model
 model.abort_operation
 report
@@ -108,6 +126,16 @@ async def run() -> int:
                 print("build   :", built)
                 assert "5 walls, 2 doors, 4 windows, 1 slab" in built, built
                 assert "Warnings" not in built, built
+                assert "Size 7.0 x 5.0 x 3.12 m" in built, built
+
+                measured = json.loads(text(await session.call_tool("verify_dimensions", {"checks": CHECKS})))
+                verdict = measured["content"][0]["text"]
+                print(verdict)
+                assert verdict.startswith("VERIFY OK. 6 of 6"), verdict
+                wrong = json.loads(text(await session.call_tool("verify_dimensions", {"checks": [
+                    {"label": "sengaja salah", "at": [OX + 2, 3.4], "axis": "x", "expected": 4.0}]})))
+                assert "SELISIH" in wrong["content"][0]["text"] and "-200 mm" in wrong["content"][0]["text"], wrong
+                print("verify catches a wrong dimension: yes")
 
                 await ruby(session, ROOF)
                 report = await ruby(session, INSPECT)

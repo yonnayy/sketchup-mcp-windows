@@ -81,7 +81,10 @@ Di percakapan **baru** di Claude Desktop, tool `sketchup` harus muncul di daftar
 
 1. **Koneksi.** Panggil `eval_ruby` dengan kode `Sketchup.version`. Hasilnya nomor versi SketchUp.
 2. **Berurutan.** Panggil `get_selection`, lalu `eval_ruby` dengan `Sketchup.active_model.entities.length`, lalu `get_selection` lagi. Ketiganya harus menjawab sesuai pertanyaannya (versi asli gagal di panggilan kedua).
-3. **Model contoh pertama.** Baca [STANDARDS.md](STANDARDS.md), lalu kerjakan tiga langkah di [MODELING.md](MODELING.md#model-contoh-pertama) pada model kosong: denah (`Built 'Lantai 1': 8 walls, 4 doors, 7 windows, 1 slab`), atap, lalu gambar.
+3. **Model contoh pertama.** Baca [STANDARDS.md](STANDARDS.md), lalu kerjakan lima langkah di [MODELING.md](MODELING.md#model-contoh-pertama) pada model kosong. Tiga jawaban ini harus muncul:
+   - `CHAINS OK. All 2 dimension strings add up within 5 mm.`
+   - `Built 'Lantai 1': 8 walls, 4 doors, 7 windows, 1 slab. Size 6.0 x 6.0 x 3.12 m`
+   - `VERIFY OK. 10 of 10 dimensions match the plan within 5 mm.`
 4. **Audit.** `SU_MCP.audit_model` lewat `eval_ruby` harus menjawab `AUDIT OK. 23 elements and 2 containers checked. All rules satisfied.`
 
 Kalau keempatnya berhasil, pemasangan selesai. Tunjukkan gambarnya ke pengguna. Model contoh boleh dihapus (hapus grup `Rumah Contoh`) atau disimpan sebagai acuan.
