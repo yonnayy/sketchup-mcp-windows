@@ -176,4 +176,8 @@ Rumah satu lantai 8 x 6 m dengan teras di selatan, setelah `build_floor_plan` (d
 6. `build_stairs` dan `place_furniture` seperti contoh di atas, lalu `check_placement`.
 7. `SU_MCP.audit_model` harus `AUDIT OK`, lalu scene dan `export_views`.
 
+Hasilnya:
+
+![Rumah contoh dengan atap pelana, teras bertiang bubut, papan dinding, dan shutter](contoh-detail.png)
+
 Uji otomatisnya, dengan angka yang sama: `tests/live_detail.py`.
